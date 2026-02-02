@@ -201,6 +201,7 @@ El proyecto se encuentra en una etapa funcional, con arquitectura sólida y enfo
 - Modo ejercicios guiados
 - Uso educativo real en aula
 
+texto de ejemplo
 ---
 
 **CodeFlow no es un editor de código.  
