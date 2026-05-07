@@ -206,3 +206,5 @@ texto de ejemplo
 
 **CodeFlow no es un editor de código.  
 Es un constructor de pensamiento lógico.**
+
+Organizadora del proyecto : Ofelia Gutierrez Giraldi
