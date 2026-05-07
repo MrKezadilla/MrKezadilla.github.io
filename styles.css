@@ -1,5 +1,9 @@
 /* ============================================
-   CODEFLOW v02.9 - ESTILOS CORRECTIVOS
+   CODEFLOW v03.5 - ESTILOS
+   + Drag & Drop
+   + Loop / Break
+   + Selección Múltiple 
+   + Botón de Flecha Abajo (Líneas Vacías)
 ============================================ */
 
 :root {
@@ -16,12 +20,12 @@
   --color-text-code: #e2e8f0;
   
   /* Acentos */
-  --color-accent-primary: #2563eb;       /* Azul Acción */
+  --color-accent-primary: #2563eb;
   --color-accent-primary-hover: #1d4ed8;
-  --color-accent-secondary: #10b981;     /* Verde Éxito */
-  --color-accent-purple: #7c3aed;        /* Morado Lógica */
-  --color-accent-red: #ef4444;           /* Rojo Peligro */
-  --color-accent-orange: #f59e0b;        /* Naranja Alerta */
+  --color-accent-secondary: #10b981;
+  --color-accent-purple: #7c3aed;
+  --color-accent-red: #ef4444;
+  --color-accent-orange: #f59e0b;
 
   /* Bordes */
   --color-border-light: #e2e8f0;
@@ -90,7 +94,6 @@ button { font-family: inherit; }
   color: white; padding: 4px 8px; border-radius: var(--radius-sm); font-size: 12px;
 }
 
-/* --- HERRAMIENTAS GLOBALES --- */
 .global-tools {
   display: flex; gap: 10px; padding-left: 20px; 
   border-left: 1px solid var(--color-border-light);
@@ -109,11 +112,20 @@ button { font-family: inherit; }
   border-color: var(--color-accent-primary);
 }
 
+/* MODIFICADO: Estilos para botones de navegación nativos */
 .main-nav { display: flex; gap: 4px; margin-left: 20px; }
 .nav-item {
-  text-decoration: none; color: var(--color-text-secondary);
-  font-weight: 500; padding: 6px 12px; border-radius: var(--radius-sm);
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  font-size: 13px;
+  text-decoration: none; 
+  color: var(--color-text-secondary);
+  font-weight: 500; 
+  padding: 6px 12px; 
+  border-radius: var(--radius-sm);
   transition: all 0.2s;
+  cursor: pointer;
 }
 .nav-item:hover { background-color: var(--color-bg-tertiary); color: var(--color-text-primary); }
 .nav-item.active { background-color: rgba(37, 99, 235, 0.1); color: var(--color-accent-primary); }
@@ -133,7 +145,7 @@ button { font-family: inherit; }
 }
 
 /* ============================================
-   LAYOUT (GRID 50/50)
+   LAYOUT
 ============================================ */
 .main-container {
   display: grid;
@@ -179,43 +191,58 @@ button { font-family: inherit; }
 .btn-clear:hover { background: #fef2f2; color: var(--color-accent-red); }
 
 /* ============================================
-   EDITOR DE LÍNEAS (CORREGIDO)
+   EDITOR DE LÍNEAS
 ============================================ */
 .panel-content { flex: 1; overflow-y: auto; }
 .code-lines { padding-bottom: 60px; min-height: 100%; background: #fff; }
 
 .editor-line {
   display: flex;
-  align-items: center; /* CORRECCIÓN: Centrado vertical perfecto */
+  align-items: center;
   min-height: 32px;
   border-bottom: 1px solid #f1f5f9;
-  padding-right: 8px; /* Espacio al final de la línea */
+  padding-right: 8px;
+  position: relative;
+  transition: background 0.1s;
 }
 .editor-line:hover { background-color: #f8fafc; }
 
-/* Columna Número */
+/* MODO SELECCIÓN MÚLTIPLE */
+body.selection-mode .editor-line {
+  cursor: pointer;
+}
+body.selection-mode .editor-line:not(.closer-line):hover {
+  background-color: rgba(37, 99, 235, 0.05);
+}
+body.selection-mode .drag-handle {
+  opacity: 1; 
+}
+.editor-line.selected {
+  background-color: rgba(37, 99, 235, 0.08) !important;
+  border-left: 3px solid var(--color-accent-primary);
+}
+
+/* Número de línea */
 .line-number {
   width: 42px; flex-shrink: 0;
   background: #fff; color: #cbd5e1;
   font-family: var(--font-mono); font-size: 11px;
   text-align: right; padding-right: 12px;
-  /* Centrado vertical del número con respecto a su caja */
   display: flex; align-items: center; justify-content: flex-end;
   height: 100%; min-height: 32px;
   border-right: 1px solid #f1f5f9;
   user-select: none;
 }
 
-/* Columna Contenido */
+/* Contenido */
 .line-content {
-  flex: 1; /* Ocupa el espacio restante */
+  flex: 1;
   padding-left: 12px;
   font-family: var(--font-mono); font-size: 13px;
   color: var(--color-text-primary);
-  white-space: pre; /* Respeta los espacios en blanco del código */
-  /* CORRECCIÓN: Quitamos display: flex para que los espacios de texto funcionen bien */
+  white-space: pre;
   display: block; 
-  padding-top: 6px; /* Ajuste fino visual */
+  padding-top: 6px;
   padding-bottom: 6px;
   overflow-x: hidden;
   text-overflow: ellipsis;
@@ -238,10 +265,48 @@ button { font-family: inherit; }
 .bracket { color: var(--color-text-tertiary); font-weight: bold; }
 .comment { color: var(--color-text-tertiary); font-style: italic; opacity: 0.8; }
 
-/* Botón "+" (CORREGIDO) */
-.plus-icon {
+/* ============================================
+   DRAG HANDLE
+============================================ */
+.drag-handle {
+  width: 16px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #d1d5db;
+  font-size: 12px;
+  cursor: grab;
+  opacity: 0;
+  transition: opacity 0.15s;
+  user-select: none;
+  padding-left: 4px;
+}
+
+.editor-line:hover .drag-handle {
+  opacity: 1;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+/* ============================================
+   DRAG & DROP — ESTADOS
+============================================ */
+.editor-line.dragging { opacity: 0.5; }
+.editor-line.drag-ghost { background: rgba(37, 99, 235, 0.04); }
+body.is-dragging * { cursor: grabbing !important; }
+.drop-indicator { height: 2px; background: var(--color-accent-primary); border-radius: 2px; margin: 0 8px; pointer-events: none; box-shadow: 0 0 6px rgba(37, 99, 235, 0.4); }
+.editor-line.drop-target-inside { background: rgba(37, 99, 235, 0.06); outline: 1px dashed var(--color-accent-primary); outline-offset: -1px; }
+
+/* ============================================
+   BOTONES DE LÍNEA ( ↓, +, × )
+============================================ */
+
+/* NUEVO: Botón de Flecha Abajo (Añadir línea vacía) */
+.down-btn {
   width: 20px; height: 20px;
-  /* Eliminado margin-top manual para usar centrado flex del padre */
   background-color: #e2e8f0;
   color: #64748b;
   border-radius: 4px;
@@ -249,9 +314,25 @@ button { font-family: inherit; }
   font-size: 14px; font-weight: bold;
   cursor: pointer;
   transition: all 0.15s ease;
-  flex-shrink: 0; /* Evita que se aplaste */
-  margin-left: 8px; /* Separación del texto */
-  opacity: 1; /* Siempre visible */
+  flex-shrink: 0;
+  margin-left: 8px;
+  opacity: 1;
+}
+.down-btn:hover { background-color: var(--color-accent-primary); color: white; transform: scale(1.1); }
+
+/* Botón "+" */
+.plus-icon {
+  width: 20px; height: 20px;
+  background-color: #e2e8f0;
+  color: #64748b;
+  border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: bold;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+  margin-left: 4px; /* Pegado al down-btn */
+  opacity: 1;
 }
 .plus-icon:hover {
   background-color: var(--color-accent-secondary); color: white; transform: scale(1.1);
@@ -261,7 +342,7 @@ button { font-family: inherit; }
 .line-del-btn {
   background: transparent; border: none; color: var(--color-text-tertiary);
   font-size: 16px; cursor: pointer; 
-  margin-left: 4px; /* Separación del botón + */
+  margin-left: 4px; /* Pegado al plus-icon */
   width: 20px; height: 20px;
   display: flex; align-items: center; justify-content: center;
   opacity: 0; transition: all 0.2s;
@@ -270,9 +351,8 @@ button { font-family: inherit; }
 .editor-line:hover .line-del-btn { opacity: 1; }
 .line-del-btn:hover { color: var(--color-accent-red); }
 
-
 /* ============================================
-   MENÚ CONTEXTUAL (ARRASTRABLE)
+   MENÚ CONTEXTUAL
 ============================================ */
 .context-menu-popup {
   position: fixed;
@@ -336,8 +416,8 @@ button { font-family: inherit; }
 .icon-var { background: var(--color-accent-primary); }
 .icon-io { background: var(--color-accent-orange); }
 .icon-flow { background: var(--color-accent-purple); }
-.icon-func { background: #ec4899; } 
-
+.icon-func { background: #ec4899; }
+.icon-break { background: var(--color-accent-red); }
 
 /* ============================================
    PANELES FLOTANTES
@@ -385,7 +465,7 @@ button { font-family: inherit; }
 }
 .btn-confirm:hover { background: var(--color-accent-primary-hover); }
 
-/* --- HELPERS UI --- */
+/* Helpers */
 .flex-row { display: flex; gap: 8px; }
 .full-width { width: 100%; margin-top: 10px; }
 .inline-form { display: flex; gap: 5px; }
@@ -411,14 +491,14 @@ button { font-family: inherit; }
 .form-condition-row { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
 .form-select-sm { min-width: 60px; text-align: center; }
 
-/* Radio Buttons Tabs (Sin Borde Negro) */
+/* Radio Buttons Tabs */
 .show-type-selector, .compare-type-selector { display: flex; gap: 8px; margin-bottom: 12px; }
 
 .show-type-option, .compare-type-option {
   flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
   padding: 6px; border: 1px solid var(--color-border-light); border-radius: var(--radius-sm);
   cursor: pointer; font-size: 12px; background: var(--color-bg-tertiary);
-  outline: none !important; /* Quitar borde de foco */
+  outline: none !important;
   user-select: none;
   position: relative;
 }
@@ -433,13 +513,12 @@ button { font-family: inherit; }
   color: var(--color-accent-primary);
 }
 
-/* Focus accesible sin cuadro negro */
 .show-type-option:focus-within {
   border-color: var(--color-accent-primary);
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
 }
 
-/* LISTAS DE GESTIÓN */
+/* Listas de gestión */
 .list-container {
   max-height: 200px; overflow-y: auto; border: 1px solid var(--color-border-light);
   border-radius: var(--radius-sm); margin-bottom: 10px; background: #fafafa;
@@ -452,7 +531,7 @@ button { font-family: inherit; }
 .manage-actions button { background: none; border: none; cursor: pointer; color: #94a3b8; font-size: 14px; margin-left: 5px; }
 .manage-actions button:hover { color: var(--color-accent-red); }
 
-/* MESSAGE BUILDER PREVIEW */
+/* Message Builder Preview */
 .message-preview {
   border: 1px solid var(--color-border-medium); background: var(--color-bg-primary);
   min-height: 45px; padding: 8px; margin-bottom: 10px; border-radius: 4px;
