@@ -1357,11 +1357,11 @@ document.addEventListener('DOMContentLoaded', function() {
   };
 
   /* 10. STORAGE MANAGER */
+ /* 10. STORAGE MANAGER */
   const StorageManager = {
     KEY: 'cf_v04',
     BACKUP_KEY: 'cf_v04_backup',
     quotaWarned: false,
-    // FIX #18: try/catch para QuotaExceededError, modo incógnito, etc.
     saveLocal: () => {
       try {
         const payload = JSON.stringify({
@@ -1374,17 +1374,15 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!StorageManager.quotaWarned) {
           StorageManager.quotaWarned = true;
           console.error("CodeFlow: no se pudo guardar en localStorage:", e);
-          alert("⚠️ No se pudo guardar el progreso. El almacenamiento del navegador está lleno o no disponible (¿modo incógnito?). Tus cambios se mantendrán en pantalla pero no sobrevivirán a una recarga.");
+          alert("⚠️ No se pudo guardar el progreso. El almacenamiento del navegador está lleno o no disponible.");
         }
       }
     },
-    // FIX #5, #6, #7, #8: validar el schema, hacer backup antes de cualquier reset destructivo
     _validateSchema: (s) => {
       if (!s || typeof s !== 'object') return false;
       if (!s.ast || typeof s.ast !== 'object' || !Array.isArray(s.ast.children)) return false;
       if (!Array.isArray(s.vars)) return false;
       if (!Array.isArray(s.funcs)) return false;
-      // entries deben ser pares [id, obj]
       for (const e of s.vars) {
         if (!Array.isArray(e) || e.length !== 2) return false;
         if (!e[1] || typeof e[1] !== 'object' || typeof e[1].name !== 'string' || typeof e[1].type !== 'string') return false;
@@ -1395,12 +1393,10 @@ document.addEventListener('DOMContentLoaded', function() {
       }
       return true;
     },
-    // Saneamiento defensivo: garantizar que cada nodo tenga la forma mínima esperada
     _sanitizeAST: (node, isRoot = true) => {
       if (!node || typeof node !== 'object') return { id:'root', type:'program', children:[] };
       if (!node.id) node.id = 'root';
       if (!node.type) node.type = 'program';
-      // Solo añadir data:{} a nodos no-root (root no necesita data)
       if (!isRoot && node.data === undefined) node.data = {};
       if (Array.isArray(node.children)) {
         node.children = node.children.filter(c => c && typeof c === 'object' && c.type);
@@ -1419,15 +1415,12 @@ document.addEventListener('DOMContentLoaded', function() {
       let s;
       try { s = JSON.parse(raw); }
       catch(e) {
-        console.error("CodeFlow: JSON corrupto en localStorage. Se hizo backup en", StorageManager.BACKUP_KEY);
         try { localStorage.setItem(StorageManager.BACKUP_KEY, raw); } catch(_){}
         ASTManager.reset();
         return;
       }
       if (!StorageManager._validateSchema(s)) {
-        console.error("CodeFlow: schema inválido en localStorage. Backup en", StorageManager.BACKUP_KEY);
         try { localStorage.setItem(StorageManager.BACKUP_KEY, raw); } catch(_){}
-        // Intentar recuperar lo que se pueda
         try {
           ASTManager.root = (s && s.ast && Array.isArray(s.ast.children)) ? StorageManager._sanitizeAST(s.ast) : { id:'root', type:'program', children:[] };
           VariableRegistry._vars = (s && Array.isArray(s.vars)) ? new Map(s.vars.filter(e => Array.isArray(e) && e.length===2 && e[1] && e[1].name && e[1].type)) : new Map();
@@ -1437,7 +1430,6 @@ document.addEventListener('DOMContentLoaded', function() {
         EditorRenderer.render();
         VariableRegistry.notifyChange();
         FunctionRegistry.notifyChange();
-        alert("⚠️ Se detectaron datos corruptos en el almacenamiento y se intentó recuperarlos. Una copia del estado anterior quedó guardada.");
         return;
       }
       try {
@@ -1450,14 +1442,12 @@ document.addEventListener('DOMContentLoaded', function() {
         VariableRegistry.notifyChange();
         FunctionRegistry.notifyChange();
       } catch(e) {
-        console.error("CodeFlow: error inesperado cargando estado:", e);
         try { localStorage.setItem(StorageManager.BACKUP_KEY, raw); } catch(_){}
         ASTManager.reset();
       }
     }
   };
 
-  // FIX #19: sincronización básica entre pestañas — si otra pestaña guarda, recargar
   window.addEventListener('storage', (e) => {
     if (e.key === StorageManager.KEY && e.newValue) {
       try {
@@ -1482,7 +1472,33 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('btnRedo').onclick = () => HistoryManager.redo();
   document.getElementById('btnClear').onclick = () => { if(confirm("¿Reiniciar?")) ASTManager.reset(); };
 
-  document.getElementById('btnTranspile').onclick = () => { alert("Transpilación desactivada temporalmente."); };
+  // ==========================================
+  // CONEXIÓN CON EL MÓDULO EXPORTADOR AST
+  // ==========================================
+  document.getElementById('btnTranspile').onclick = () => { 
+      const title = document.querySelector('#panelPythonCode .floating-panel-title');
+      if (title) title.textContent = 'AST / Tokens (JSON)';
+      
+      const output = document.getElementById('pythonCodeOutput');
+      
+      // Llamamos al archivo externo
+      if (typeof window.ASTExporter !== 'undefined') {
+          output.innerText = window.ASTExporter.generateJSON(); 
+      } else {
+          output.innerText = "// ERROR: El módulo ExportadorAST.js no ha sido cargado en el HTML.";
+      }
+      
+      PanelManager.open('panelPythonCode'); 
+  };
+  
+  const btnCopyPython = document.getElementById('btnCopyPython');
+  if(btnCopyPython) { 
+      btnCopyPython.onclick = () => {
+          const code = document.getElementById('pythonCodeOutput').innerText;
+          navigator.clipboard.writeText(code);
+          alert("JSON copiado al portapapeles. ¡Listo para leerse en un Transpilador!");
+      };
+  }
 
   const btnMultiSelect = document.getElementById('btnMultiSelect');
   if(btnMultiSelect) { btnMultiSelect.onclick = (e) => { e.preventDefault(); SelectionManager.toggleMode(); }; }
@@ -1490,7 +1506,6 @@ document.addEventListener('DOMContentLoaded', function() {
   const btnDeleteSelected = document.getElementById('btnDeleteSelected');
   if(btnDeleteSelected) { btnDeleteSelected.onclick = (e) => { e.preventDefault(); SelectionManager.deleteSelected(); }; }
 
-  // EVENTOS PARA MENÚ DE CREACIÓN Y EDICIÓN
   document.addEventListener('click', e => {
     let it = e.target.closest('#quickContextMenu .context-menu-item');
     if(it && !it.classList.contains('disabled')) {
@@ -1504,7 +1519,7 @@ document.addEventListener('DOMContentLoaded', function() {
       else if(it.dataset.action === 'open-loop') ASTManager.addNode('loop', {}, FormManager.targetId, FormManager.insertAfterId, FormManager.replaceNodeId);
       else if(it.dataset.action === 'open-break') ASTManager.addNode('break', {}, FormManager.targetId, FormManager.insertAfterId, FormManager.replaceNodeId);
     }
-
+    
     let editIt = e.target.closest('#editContextMenu .context-menu-item');
     if(editIt && !editIt.classList.contains('disabled')) {
       document.getElementById('editContextMenu').style.display = 'none';
@@ -1515,7 +1530,7 @@ document.addEventListener('DOMContentLoaded', function() {
           ContextMenuManager.show(e.clientX, e.clientY, n.parentId, null, n.id);
       }
     }
-
+    
     if(!e.target.closest('.plus-icon') && !e.target.closest('.down-btn') && !e.target.closest('.edit-icon') && !e.target.closest('.context-menu-popup')) {
       document.getElementById('quickContextMenu').style.display = 'none';
       const editMenu = document.getElementById('editContextMenu');
@@ -1533,5 +1548,5 @@ document.addEventListener('DOMContentLoaded', function() {
   window.HistoryManager = HistoryManager;
   window.SelectionManager = SelectionManager;
 
-  console.log("CodeFlow v04.6 Ready — Corrección de Alineación y Bloques internos");
+  console.log("CodeFlow v05.0 Ready — AST conectado a Exportador Externo");
 });
