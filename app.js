@@ -1,8 +1,9 @@
 /* ============================================
-   CODEFLOW v04.6 - CORE
+   CODEFLOW v05.1 - CORE
    - Transpilador removido (Pausa para Fase 4)
-   - CORRECCIÓN 1: Flecha abajo (↓) en bloques inserta ADENTRO al inicio.
-   - CORRECCIÓN 2: Botones invisibles estructurados para evitar saltos visuales.
+   - Funciones con cuerpo renderizado en la cabecera
+   - Múltiples contenedores en ASTManager (_getAllContainers)
+   - Purga y renombrado global de referencias
 ============================================ */
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -18,7 +19,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
   const _idCounter = { n: 0 };
   const Utils = {
-    // FIX: contador monotónico evita cualquier colisión de IDs
     generateId: () => {
       _idCounter.n++;
       return 'node_' + Date.now().toString(36) + '_' + _idCounter.n.toString(36) + '_' + Math.random().toString(36).substr(2, 5);
@@ -27,7 +27,6 @@ document.addEventListener('DOMContentLoaded', function() {
       try { return structuredClone(obj); }
       catch (e) { return JSON.parse(JSON.stringify(obj)); }
     },
-    // FIX #1, #2, #3, #12: escape HTML para evitar XSS en cualquier interpolación con innerHTML
     escapeHtml: (s) => {
       if (s === null || s === undefined) return '';
       return String(s)
@@ -37,14 +36,12 @@ document.addEventListener('DOMContentLoaded', function() {
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
     },
-    // FIX #16: rechazar keywords Python para evitar código Python roto
     isValidName: (n) => {
       if (typeof n !== 'string') return false;
       if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(n)) return false;
       if (PYTHON_KEYWORDS.has(n)) return false;
       return true;
     },
-    // Útil para mensajes de error con razón explícita
     validateNameWithReason: (n) => {
       if (typeof n !== 'string' || !n.trim()) return "El nombre no puede estar vacío";
       const trimmed = n.trim();
@@ -58,7 +55,6 @@ document.addEventListener('DOMContentLoaded', function() {
       if(type === 'list') return [];
       return "";
     },
-    // FIX #13, #14: parseo numérico seguro que distingue inválido de cero
     safeNumber: (raw, fallback = 0) => {
       if (raw === null || raw === undefined || raw === '') return fallback;
       const n = Number(raw);
@@ -74,11 +70,6 @@ document.addEventListener('DOMContentLoaded', function() {
   /* 1. GESTOR DE HISTORIAL */
   const HistoryManager = {
     stack: [], pointer: -1, limit: 50,
-    // FIX: el bug original era que saveState() se llama ANTES de mutar.
-    // Esto guarda el "antes" pero nunca el "después", así que el redo no funcionaba.
-    // Solución: cada saveState() primero actualiza el snapshot actual (el "después"
-    // de la mutación previa), luego trunca cualquier futuro y empuja el estado
-    // actual como nuevo punto de retorno.
     _snapshot: function() {
       return {
         ast: Utils.clone(ASTManager.root),
@@ -87,15 +78,12 @@ document.addEventListener('DOMContentLoaded', function() {
       };
     },
     saveState: function() {
-      // Si ya había estados, actualizar el "actual" con el resultado de la última mutación
       if (this.pointer >= 0 && this.pointer < this.stack.length) {
         this.stack[this.pointer] = this._snapshot();
       }
-      // Truncar redos pendientes (cualquier futuro queda invalidado al hacer una nueva acción)
       if (this.pointer < this.stack.length - 1) {
         this.stack = this.stack.slice(0, this.pointer + 1);
       }
-      // Push del estado actual como punto de retorno para esta mutación
       this.stack.push(this._snapshot());
       if (this.stack.length > this.limit) {
         this.stack.shift();
@@ -107,7 +95,6 @@ document.addEventListener('DOMContentLoaded', function() {
     },
     undo: function() {
       if(this.pointer > 0) {
-        // Antes de retroceder, asegurar que el estado actual quedó capturado
         this.stack[this.pointer] = this._snapshot();
         this.pointer--;
         this.restore(this.stack[this.pointer]);
@@ -144,7 +131,6 @@ document.addEventListener('DOMContentLoaded', function() {
   const VariableRegistry = {
     _vars: new Map(),
     create: function(name, type) {
-      // FIX #16, #20: validación robusta con mensaje claro
       const reason = Utils.validateNameWithReason(name);
       if (reason) return { success: false, error: reason };
       const trimmed = name.trim();
@@ -159,9 +145,7 @@ document.addEventListener('DOMContentLoaded', function() {
       if(!confirm("¿Eliminar variable? Se quitarán también las referencias en el código.")) return;
       HistoryManager.saveState();
       this._vars.delete(id);
-      // FIX #11: limpieza referencial — purgar el AST de cualquier referencia huérfana
       ASTManager.purgeVarReferences(id);
-      // FIX #29: limpiar selecciones huérfanas
       SelectionManager.pruneDeadIds();
       this.notifyChange();
     },
@@ -185,20 +169,47 @@ document.addEventListener('DOMContentLoaded', function() {
       if ([...this._funcs.values()].some(f => f.name === trimmed)) return { success: false, error: "Ya existe una función con ese nombre" };
       HistoryManager.saveState();
       const id = Utils.generateId();
-      this._funcs.set(id, { id, name: trimmed });
+      this._funcs.set(id, {
+        id,
+        name: trimmed,
+        argVarId: null,
+        returnVarId: null,
+        children: []
+      });
       this.notifyChange();
       return { success: true, id };
     },
     delete: function(id) {
-      if(!confirm("¿Eliminar función? Se quitarán también las llamadas y la definición en el código.")) return;
+      if(!confirm("¿Eliminar función? Se quitarán también las llamadas en el código.")) return;
       const func = this._funcs.get(id);
       const fname = func ? func.name : null;
       HistoryManager.saveState();
       this._funcs.delete(id);
-      // FIX #11: limpieza referencial — quitar function_def y function_call asociados
       if (fname) ASTManager.purgeFuncReferences(fname);
+      // Limpiar el wrapper cacheado de esta función
+      if (ASTManager._funcWrappers) ASTManager._funcWrappers.delete(id);
       SelectionManager.pruneDeadIds();
       this.notifyChange();
+    },
+    update: function(id, partial) {
+      const f = this._funcs.get(id);
+      if (!f) return { success: false, error: "Función no encontrada" };
+      HistoryManager.saveState();
+      if (partial.argVarId !== undefined) f.argVarId = partial.argVarId;
+      if (partial.returnVarId !== undefined) f.returnVarId = partial.returnVarId;
+      if (partial.name !== undefined) {
+        const reason = Utils.validateNameWithReason(partial.name);
+        if (reason) return { success: false, error: reason };
+        const trimmed = partial.name.trim();
+        if ([...this._funcs.values()].some(other => other.id !== id && other.name === trimmed)) {
+          return { success: false, error: "Ya existe una función con ese nombre" };
+        }
+        const oldName = f.name;
+        f.name = trimmed;
+        ASTManager.renameFuncReferences(oldName, trimmed);
+      }
+      this.notifyChange();
+      return { success: true };
     },
     get: (id) => FunctionRegistry._funcs.get(id),
     getAll: () => Array.from(FunctionRegistry._funcs.values()),
@@ -209,46 +220,90 @@ document.addEventListener('DOMContentLoaded', function() {
         StorageManager.saveLocal();
     }
   };
+
   /* 3. AST MANAGER */
   const ASTManager = {
     root: { id: 'root', type: 'program', children: [] },
     reset: () => {
       HistoryManager.saveState();
       ASTManager.root = { id: 'root', type: 'program', children: [] };
+      FunctionRegistry.getAll().forEach(f => { f.children.length = 0; });
       EditorRenderer.render();
       StorageManager.saveLocal();
     },
-    findNode: (id, node = ASTManager.root) => {
-      if(node.id === id) return node;
-      if(node.children) {
-          for(let c of node.children) {
-              const f = ASTManager.findNode(id, c);
-              if(f) return f;
-          }
+    _funcWrappers: new Map(),
+    _getWrapperForFunc: (f) => {
+      let w = ASTManager._funcWrappers.get(f.id);
+      if (!w) {
+        w = { id: 'func:' + f.id, type: 'function_def_body', funcRef: f, children: f.children };
+        ASTManager._funcWrappers.set(f.id, w);
+      } else {
+        w.children = f.children;
+        w.funcRef = f;
+      }
+      return w;
+    },
+    _syncWrapperToFunc: (wrapper) => {
+      if (wrapper && wrapper.funcRef) {
+        wrapper.funcRef.children = wrapper.children;
+      }
+    },
+    _getAllContainers: () => {
+      const containers = [ASTManager.root];
+      FunctionRegistry.getAll().forEach(f => {
+        containers.push(ASTManager._getWrapperForFunc(f));
+      });
+      return containers;
+    },
+    _afterMutate: (parent) => {
+      if (parent && parent.funcRef) ASTManager._syncWrapperToFunc(parent);
+    },
+    findNode: (id, node = null) => {
+      if (node) {
+        if(node.id === id) return node;
+        if(node.children) {
+            for(let c of node.children) {
+                const f = ASTManager.findNode(id, c);
+                if(f) return f;
+            }
+        }
+        return null;
+      }
+      for (const container of ASTManager._getAllContainers()) {
+        if (container.id === id) return container;
+        const found = ASTManager.findNode(id, container);
+        if (found) return found;
       }
       return null;
     },
-    findParent: (targetId, node = ASTManager.root) => {
-      if(!node.children) return null;
-      if(node.children.some(c => c.id === targetId)) return node;
-      for(let c of node.children) {
-        const found = ASTManager.findParent(targetId, c);
-        if(found) return found;
+    findParent: (targetId, node = null) => {
+      if (node) {
+        if(!node.children) return null;
+        if(node.children.some(c => c.id === targetId)) return node;
+        for(let c of node.children) {
+          const found = ASTManager.findParent(targetId, c);
+          if(found) return found;
+        }
+        return null;
+      }
+      for (const container of ASTManager._getAllContainers()) {
+        const found = ASTManager.findParent(targetId, container);
+        if (found) return found;
       }
       return null;
     },
-    // FIX #10: usar Set de visitados para evitar stack overflow si parentId formase un ciclo
     isAncestor: (ancestorId, nodeId, visited = null) => {
       if (!visited) visited = new Set();
-      if (visited.has(nodeId)) return false; // ciclo detectado, abortar limpio
+      if (visited.has(nodeId)) return false;
       visited.add(nodeId);
       const node = ASTManager.findNode(nodeId);
       if(!node) return false;
       if(node.parentId === ancestorId) return true;
-      if(!node.parentId || node.parentId === 'root') return false;
+      if(!node.parentId || node.parentId === 'root' || (typeof node.parentId === 'string' && node.parentId.startsWith('func:'))) {
+        return node.parentId === ancestorId;
+      }
       return ASTManager.isAncestor(ancestorId, node.parentId, visited);
     },
-    // FIX #9: comprobar si un nodo (o cualquiera de sus descendientes) es un break
     containsBreak: (node) => {
       if (!node) return false;
       if (node.type === 'break') return true;
@@ -256,51 +311,42 @@ document.addEventListener('DOMContentLoaded', function() {
       return node.children.some(c => ASTManager.containsBreak(c));
     },
     isInsideLoopByParentId: (parentId) => {
-      if (!parentId || parentId === 'root') return false;
+      if (!parentId || parentId === 'root' || (typeof parentId === 'string' && parentId.startsWith('func:'))) return false;
       const node = ASTManager.findNode(parentId);
       if (!node) return false;
       if (['loop','while','for'].includes(node.type)) return true;
       return ASTManager.isInsideLoopByParentId(node.parentId);
     },
-    // FIX #11: recorrer el AST y eliminar/limpiar referencias a una variable borrada
     purgeVarReferences: (varId) => {
       const walk = (node) => {
         if (!node) return;
         if (node.children && Array.isArray(node.children)) {
-          // Filtrar nodos que quedarían rotos sin esta variable
-          node.children = node.children.filter(child => {
-            if (!child || !child.data) return true;
-            // Nodos que dependen totalmente de la variable: borrarlos
-            if (child.type === 'assign' && child.data.targetVarId === varId) return false;
-            if (child.type === 'read' && child.data.targetVarId === varId) return false;
-            if (child.type === 'if' || child.type === 'while') {
-              if (child.data.condition && child.data.condition.leftVarId === varId) return false;
-            }
-            if (child.type === 'for' && child.data.iterableVarId === varId) return false;
-            return true;
-          });
-          // Para los que sobreviven, limpiar referencias secundarias
+          for (let i = node.children.length - 1; i >= 0; i--) {
+            const child = node.children[i];
+            if (!child || !child.data) continue;
+            let shouldDelete = false;
+            if (child.type === 'assign' && child.data.targetVarId === varId) shouldDelete = true;
+            else if (child.type === 'read' && child.data.targetVarId === varId) shouldDelete = true;
+            else if ((child.type === 'if' || child.type === 'while') && child.data.condition && child.data.condition.leftVarId === varId) shouldDelete = true;
+            else if (child.type === 'for' && child.data.iterableVarId === varId) shouldDelete = true;
+            if (shouldDelete) node.children.splice(i, 1);
+          }
           node.children.forEach(child => {
             if (!child || !child.data) return;
-            // assign con expresión que referencia la variable borrada → cambiar a literal por defecto
             if (child.type === 'assign' && child.data.expression && child.data.expression.varId === varId) {
               const targetVar = VariableRegistry._vars.get(child.data.targetVarId);
               const valueType = targetVar ? targetVar.type : 'string';
               child.data.expression = { type: 'literal', valueType, value: Utils.getDefaultVal(valueType) };
             }
-            // condition con rightVarId → cambiar a literal
             if ((child.type === 'if' || child.type === 'while') && child.data.condition && child.data.condition.rightVarId === varId) {
               child.data.condition.rightType = 'literal';
               child.data.condition.rightValue = Utils.getDefaultVal(child.data.condition.leftType || 'string');
               delete child.data.condition.rightVarId;
             }
-            // function_def / function_call con argVarId/returnVarId/targetVarId apuntando a la var
-            if (child.type === 'function_def' || child.type === 'function_call') {
+            if (child.type === 'function_call') {
               if (child.data.argVarId === varId) child.data.argVarId = null;
-              if (child.data.returnVarId === varId) child.data.returnVarId = null;
               if (child.data.targetVarId === varId) child.data.targetVarId = null;
             }
-            // show: filtrar parts variable que apunten a la var borrada
             if (child.type === 'show' && Array.isArray(child.data.parts)) {
               child.data.parts = child.data.parts.filter(p => !(p.type === 'variable' && p.varId === varId));
             }
@@ -309,30 +355,48 @@ document.addEventListener('DOMContentLoaded', function() {
         }
       };
       walk(ASTManager.root);
+      FunctionRegistry.getAll().forEach(f => {
+        if (f.argVarId === varId) f.argVarId = null;
+        if (f.returnVarId === varId) f.returnVarId = null;
+        walk(f);
+      });
     },
-    // FIX #11: limpiar function_def y function_call cuando se borra la función del registro
     purgeFuncReferences: (funcName) => {
       const walk = (node) => {
         if (!node) return;
         if (node.children && Array.isArray(node.children)) {
-          node.children = node.children.filter(child => {
-            if (!child || !child.data) return true;
-            if ((child.type === 'function_def' || child.type === 'function_call') && child.data.funcName === funcName) return false;
-            return true;
-          });
+          for (let i = node.children.length - 1; i >= 0; i--) {
+            const child = node.children[i];
+            if (child && child.data && child.type === 'function_call' && child.data.funcName === funcName) {
+              node.children.splice(i, 1);
+            }
+          }
           node.children.forEach(walk);
         }
       };
       walk(ASTManager.root);
+      FunctionRegistry.getAll().forEach(walk);
+    },
+    renameFuncReferences: (oldName, newName) => {
+      const walk = (node) => {
+        if (!node || !node.children) return;
+        node.children.forEach(child => {
+          if (!child) return;
+          if (child.type === 'function_call' && child.data && child.data.funcName === oldName) {
+            child.data.funcName = newName;
+          }
+          walk(child);
+        });
+      };
+      walk(ASTManager.root);
+      FunctionRegistry.getAll().forEach(walk);
     },
     addNode: (type, data, parentId = 'root', insertAfter = null, replaceNodeId = null) => {
       const parent = ASTManager.findNode(parentId);
       if(!parent || !Array.isArray(parent.children)) return;
-
       HistoryManager.saveState();
-      const hasChildren = ['if','while','for','loop','function_def'].includes(type);
+      const hasChildren = ['if','while','for','loop'].includes(type);
       const node = { id: Utils.generateId(), type, parentId, data, children: hasChildren ? [] : null };
-
       if (replaceNodeId) {
           const idx = parent.children.findIndex(c => c.id === replaceNodeId);
           if (idx !== -1) parent.children.splice(idx, 1, node);
@@ -346,7 +410,7 @@ document.addEventListener('DOMContentLoaded', function() {
       } else {
           parent.children.push(node);
       }
-
+      ASTManager._afterMutate(parent);
       EditorRenderer.render();
       StorageManager.saveLocal();
     },
@@ -362,11 +426,12 @@ document.addEventListener('DOMContentLoaded', function() {
       const node = ASTManager.findNode(id);
       if(!node) return;
       if(node.children && node.children.length > 0 && !confirm("¿Borrar contenido?")) return;
-
       HistoryManager.saveState();
       const parent = ASTManager.findParent(id);
       if(parent) {
-        parent.children = parent.children.filter(n => n.id !== id);
+        const idx = parent.children.findIndex(n => n.id === id);
+        if (idx !== -1) parent.children.splice(idx, 1);
+        ASTManager._afterMutate(parent);
         SelectionManager.pruneDeadIds();
         EditorRenderer.render();
         StorageManager.saveLocal();
@@ -409,14 +474,17 @@ document.addEventListener('DOMContentLoaded', function() {
         HistoryManager.saveState();
         SelectionManager.selectedIds.forEach(id => {
            const parent = ASTManager.findParent(id);
-           if (parent) parent.children = parent.children.filter(n => n.id !== id);
+           if (parent) {
+             const idx = parent.children.findIndex(n => n.id === id);
+             if (idx !== -1) parent.children.splice(idx, 1);
+             ASTManager._afterMutate(parent);
+           }
         });
         SelectionManager.clear();
         EditorRenderer.render();
         StorageManager.saveLocal();
       }
     },
-    // FIX #29: limpiar IDs que ya no existen en el AST (tras borrados o purgas)
     pruneDeadIds: () => {
       const before = SelectionManager.selectedIds.size;
       SelectionManager.selectedIds.forEach(id => {
@@ -458,11 +526,9 @@ document.addEventListener('DOMContentLoaded', function() {
       for(let id of draggingIds) {
         if(ASTManager.isAncestor(id, targetNodeId)) { DragManager.endDrag(); return; }
       }
-      // FIX #9: si alguno de los nodos arrastrados contiene un break,
-      // verificar que el destino siga estando dentro de un loop
       const targetParentId = position === 'inside' ? targetNodeId : (ASTManager.findParent(targetNodeId)?.id || 'root');
       const destinoEsLoopOEstaEnLoop = (() => {
-        if (targetParentId === 'root') return false;
+        if (targetParentId === 'root' || (typeof targetParentId === 'string' && targetParentId.startsWith('func:'))) return false;
         const tn = ASTManager.findNode(targetParentId);
         if (tn && ['loop','while','for'].includes(tn.type)) return true;
         return ASTManager.isInsideLoopByParentId(targetParentId);
@@ -480,7 +546,14 @@ document.addEventListener('DOMContentLoaded', function() {
         if(!targetNode.children) { DragManager.endDrag(); return; }
         draggingIds.forEach(id => {
           const node = ASTManager.findNode(id), oldParent = ASTManager.findParent(id);
-          if(node && oldParent) { oldParent.children = oldParent.children.filter(n => n.id !== id); node.parentId = targetNodeId; targetNode.children.push(node); }
+          if(node && oldParent) {
+            const idx = oldParent.children.findIndex(n => n.id === id);
+            if (idx !== -1) oldParent.children.splice(idx, 1);
+            ASTManager._afterMutate(oldParent);
+            node.parentId = targetNodeId;
+            targetNode.children.push(node);
+            ASTManager._afterMutate(targetNode);
+          }
         });
       } else {
         const targetParent = ASTManager.findParent(targetNodeId);
@@ -488,18 +561,24 @@ document.addEventListener('DOMContentLoaded', function() {
         const nodesToMove = [];
         draggingIds.forEach(id => {
           const node = ASTManager.findNode(id), oldParent = ASTManager.findParent(id);
-          if(node && oldParent) { oldParent.children = oldParent.children.filter(n => n.id !== id); node.parentId = targetParent.id; nodesToMove.push(node); }
+          if(node && oldParent) {
+            const idx = oldParent.children.findIndex(n => n.id === id);
+            if (idx !== -1) oldParent.children.splice(idx, 1);
+            ASTManager._afterMutate(oldParent);
+            node.parentId = targetParent.id;
+            nodesToMove.push(node);
+          }
         });
         let targetIndex = targetParent.children.findIndex(c => c.id === targetNodeId);
         if(targetIndex === -1) targetIndex = targetParent.children.length;
         const insertIndex = position === 'after' ? targetIndex + 1 : targetIndex;
         targetParent.children.splice(insertIndex, 0, ...nodesToMove);
+        ASTManager._afterMutate(targetParent);
       }
       EditorRenderer.render(); StorageManager.saveLocal(); DragManager.endDrag();
     }
   };
 
-  // FIX #26: si el drag se cancela (Escape, salir de la ventana), endDrag debe ejecutarse
   document.addEventListener('dragend', () => { if (DragManager.draggingIds.length) DragManager.endDrag(); });
   window.addEventListener('blur', () => { if (DragManager.draggingIds.length) DragManager.endDrag(); });
 
@@ -513,6 +592,8 @@ document.addEventListener('DOMContentLoaded', function() {
       if(!EditorRenderer.container) return;
       EditorRenderer.container.innerHTML = '';
       EditorRenderer.lineCounter = 1;
+
+      EditorRenderer._renderDeclarationHeader();
 
       EditorRenderer._visit(ASTManager.root.children, 0, 'root');
 
@@ -528,6 +609,293 @@ document.addEventListener('DOMContentLoaded', function() {
       }
     },
 
+    panels: {
+      vars: { open: true },
+      funcs: { open: true }
+    },
+
+    _renderDeclarationHeader: () => {
+      EditorRenderer._createPanelHeader('vars');
+      if (EditorRenderer.panels.vars.open) {
+        const vars = VariableRegistry.getAll();
+        if (vars.length === 0) {
+          EditorRenderer._createPanelEmptyLine('vars');
+        } else {
+          vars.forEach((v, idx) => {
+            EditorRenderer._createPanelItemLine('var', v, idx, vars.length);
+          });
+        }
+      }
+      EditorRenderer._createPanelHeader('funcs');
+      if (EditorRenderer.panels.funcs.open) {
+        const funcs = FunctionRegistry.getAll();
+        if (funcs.length === 0) {
+          EditorRenderer._createPanelEmptyLine('funcs');
+        } else {
+          funcs.forEach((f, idx) => {
+            EditorRenderer._renderFunctionBlock(f);
+            if (idx < funcs.length - 1) {
+              EditorRenderer._createPanelSeparator();
+            }
+          });
+        }
+      }
+    },
+
+    _renderFunctionBlock: (func) => {
+      const funcNode = {
+        id: 'func:' + func.id,
+        type: 'function_def',
+        parentId: null,
+        data: { funcName: func.name, argVarId: func.argVarId, returnVarId: func.returnVarId, _funcId: func.id },
+        children: func.children
+      };
+      EditorRenderer._createFunctionDefLine(funcNode, 1);
+      if (func.children && func.children.length > 0) {
+        EditorRenderer._visit(func.children, 2, funcNode.id);
+      } else {
+        EditorRenderer._createLine(null, 2, true, funcNode.id);
+      }
+      EditorRenderer._createReturnLine(funcNode, 2);
+      EditorRenderer._createCloser(funcNode, 1);
+    },
+
+    _createFunctionDefLine: (funcNode, level) => {
+      const el = document.createElement('div');
+      el.className = 'editor-line declaration-line function-def-line';
+      el.draggable = false;
+      el.dataset.declaration = 'func';
+      el.dataset.funcId = funcNode.data._funcId;
+
+      const num = document.createElement('div');
+      num.className = 'line-number';
+      num.innerText = EditorRenderer.lineCounter++;
+
+      const content = document.createElement('div');
+      content.className = `line-content indent-${level}`;
+      content.innerHTML = EditorRenderer._html(funcNode);
+
+      const dragHandle = document.createElement('div');
+      dragHandle.className = 'drag-handle';
+      dragHandle.style.visibility = 'hidden';
+
+      const downBtn = document.createElement('div');
+      downBtn.className = 'down-btn';
+      downBtn.innerText = '↓';
+      downBtn.onclick = (e) => {
+        e.stopPropagation();
+        ASTManager.addNode('empty', {}, funcNode.id, 'START');
+      };
+
+      const editBtn = document.createElement('div');
+      editBtn.className = 'edit-icon';
+      editBtn.innerText = '✎';
+      editBtn.title = 'Editar argumento y retorno de la función';
+      editBtn.onclick = (e) => {
+        e.stopPropagation();
+        FormManager.loadFunctionForEdit(funcNode.data._funcId);
+      };
+
+      const del = document.createElement('div');
+      del.className = 'line-del-btn';
+      del.innerText = '×';
+      del.style.opacity = '0';
+      del.style.pointerEvents = 'none';
+      del.title = 'Borra la función desde el panel de Funciones';
+
+      el.append(dragHandle, num, content, downBtn, editBtn, del);
+      EditorRenderer.container.appendChild(el);
+    },
+
+    _createPanelHeader: (kind) => {
+      const el = document.createElement('div');
+      el.className = 'editor-line declaration-line declaration-header';
+      el.draggable = false;
+      el.dataset.declaration = kind === 'vars' ? 'var-header' : 'func-header';
+
+      const num = document.createElement('div');
+      num.className = 'line-number';
+      num.innerText = EditorRenderer.lineCounter++;
+
+      const content = document.createElement('div');
+      content.className = 'line-content indent-0';
+
+      const open = EditorRenderer.panels[kind].open;
+      const arrow = open ? '▼' : '▶';
+      const count = kind === 'vars' ? VariableRegistry.getAll().length : FunctionRegistry.getAll().length;
+      const label = kind === 'vars' ? 'Variables' : 'Funciones';
+
+      content.innerHTML = `<span class="panel-toggle-arrow">${arrow}</span> <span class="keyword">${label}</span> <span class="panel-count">(${count})</span>`;
+      content.style.cursor = 'pointer';
+      content.title = open ? `Plegar ${label.toLowerCase()}` : `Desplegar ${label.toLowerCase()}`;
+
+      content.onclick = (e) => {
+        e.stopPropagation();
+        EditorRenderer.panels[kind].open = !EditorRenderer.panels[kind].open;
+        EditorRenderer.render();
+      };
+
+      const dragHandle = document.createElement('div');
+      dragHandle.className = 'drag-handle';
+      dragHandle.style.visibility = 'hidden';
+
+      const downBtn = document.createElement('div');
+      downBtn.className = 'down-btn';
+      downBtn.innerText = '↓';
+      downBtn.style.opacity = '0';
+      downBtn.style.pointerEvents = 'none';
+
+      const actionBtn = document.createElement('div');
+      actionBtn.className = 'edit-icon';
+      actionBtn.style.opacity = '0';
+      actionBtn.style.pointerEvents = 'none';
+
+      const del = document.createElement('div');
+      del.className = 'line-del-btn';
+      del.innerText = '×';
+      del.style.opacity = '0';
+      del.style.pointerEvents = 'none';
+
+      el.append(dragHandle, num, content, downBtn, actionBtn, del);
+      EditorRenderer.container.appendChild(el);
+    },
+
+    _createPanelItemLine: (kind, entity, idx, total) => {
+      const el = document.createElement('div');
+      el.className = 'editor-line declaration-line declaration-item';
+      el.draggable = false;
+      el.dataset.declaration = kind;
+
+      const num = document.createElement('div');
+      num.className = 'line-number';
+      num.innerText = EditorRenderer.lineCounter++;
+
+      const content = document.createElement('div');
+      content.className = 'line-content indent-1';
+
+      const esc = Utils.escapeHtml;
+      if (kind === 'var') {
+        let typeLabel = entity.type;
+        if (entity.type === 'boolean') typeLabel = 'Bool';
+        if (entity.type === 'list') typeLabel = 'List';
+        if (entity.type === 'number') typeLabel = 'Num';
+        if (entity.type === 'string') typeLabel = 'Texto';
+
+        let valStr;
+        if (entity.type === 'boolean') {
+          valStr = `<span class="boolean">${entity.value ? 'True' : 'False'}</span>`;
+        } else if (entity.type === 'list') {
+          valStr = `<span class="bracket">[ ]</span>`;
+        } else if (entity.type === 'string') {
+          valStr = `<span class="string">"${esc(entity.value || '')}"</span>`;
+        } else {
+          valStr = `<span class="number">${esc(entity.value)}</span>`;
+        }
+
+        content.innerHTML = `<span class="variable">${esc(entity.name)}</span><span class="operator">:</span> <span class="keyword">${esc(typeLabel)}</span> <span class="operator">=</span> ${valStr}`;
+      } else {
+        content.innerHTML = `<span class="variable">${esc(entity.name)}</span><span class="bracket">()</span>`;
+      }
+
+      const dragHandle = document.createElement('div');
+      dragHandle.className = 'drag-handle';
+      dragHandle.style.visibility = 'hidden';
+
+      const downBtn = document.createElement('div');
+      downBtn.className = 'down-btn';
+      downBtn.innerText = '↓';
+      downBtn.style.opacity = '0';
+      downBtn.style.pointerEvents = 'none';
+
+      const actionBtn = document.createElement('div');
+      actionBtn.className = 'edit-icon';
+      actionBtn.style.opacity = '0';
+      actionBtn.style.pointerEvents = 'none';
+
+      const del = document.createElement('div');
+      del.className = 'line-del-btn';
+      del.innerText = '×';
+      del.style.opacity = '0';
+      del.style.pointerEvents = 'none';
+      del.title = kind === 'var' ? 'Borra desde el panel de Variables' : 'Borra desde el panel de Funciones';
+
+      el.append(dragHandle, num, content, downBtn, actionBtn, del);
+      EditorRenderer.container.appendChild(el);
+    },
+
+    _createPanelEmptyLine: (kind) => {
+      const el = document.createElement('div');
+      el.className = 'editor-line declaration-line declaration-item declaration-empty';
+      el.draggable = false;
+
+      const num = document.createElement('div');
+      num.className = 'line-number';
+      num.innerText = EditorRenderer.lineCounter++;
+
+      const content = document.createElement('div');
+      content.className = 'line-content indent-1';
+      const txt = kind === 'vars' ? 'Sin variables — créalas desde el panel "Variables"' : 'Sin funciones — créalas desde el panel "Funciones"';
+      content.innerHTML = `<span style="opacity:0.5; font-style:italic;">// ${txt}</span>`;
+
+      const dragHandle = document.createElement('div');
+      dragHandle.className = 'drag-handle';
+      dragHandle.style.visibility = 'hidden';
+
+      const downBtn = document.createElement('div');
+      downBtn.className = 'down-btn';
+      downBtn.style.opacity = '0';
+      downBtn.style.pointerEvents = 'none';
+
+      const actionBtn = document.createElement('div');
+      actionBtn.className = 'edit-icon';
+      actionBtn.style.opacity = '0';
+      actionBtn.style.pointerEvents = 'none';
+
+      const del = document.createElement('div');
+      del.className = 'line-del-btn';
+      del.style.opacity = '0';
+      del.style.pointerEvents = 'none';
+
+      el.append(dragHandle, num, content, downBtn, actionBtn, del);
+      EditorRenderer.container.appendChild(el);
+    },
+
+    _createPanelSeparator: () => {
+      const el = document.createElement('div');
+      el.className = 'editor-line declaration-line declaration-separator';
+      el.draggable = false;
+
+      const num = document.createElement('div');
+      num.className = 'line-number';
+      num.innerText = '';
+
+      const content = document.createElement('div');
+      content.className = 'line-content indent-1';
+      content.innerHTML = `<span class="panel-separator-line"></span>`;
+
+      const dragHandle = document.createElement('div');
+      dragHandle.className = 'drag-handle';
+      dragHandle.style.visibility = 'hidden';
+
+      const downBtn = document.createElement('div');
+      downBtn.className = 'down-btn';
+      downBtn.style.opacity = '0';
+      downBtn.style.pointerEvents = 'none';
+
+      const actionBtn = document.createElement('div');
+      actionBtn.className = 'edit-icon';
+      actionBtn.style.opacity = '0';
+      actionBtn.style.pointerEvents = 'none';
+
+      const del = document.createElement('div');
+      del.className = 'line-del-btn';
+      del.style.opacity = '0';
+      del.style.pointerEvents = 'none';
+
+      el.append(dragHandle, num, content, downBtn, actionBtn, del);
+      EditorRenderer.container.appendChild(el);
+    },
+
     _visit: (nodes, level, parentId) => {
       nodes.forEach(n => {
         if (n.type === 'empty') {
@@ -539,10 +907,6 @@ document.addEventListener('DOMContentLoaded', function() {
                   EditorRenderer._visit(n.children, level + 1, n.id);
               } else {
                   EditorRenderer._createLine(null, level + 1, true, n.id);
-              }
-
-              if (n.type === 'function_def') {
-                  EditorRenderer._createReturnLine(n, level + 1);
               }
               EditorRenderer._createCloser(n, level);
             }
@@ -597,7 +961,6 @@ document.addEventListener('DOMContentLoaded', function() {
       downBtn.innerText = '↓';
       downBtn.onclick = (e) => {
         e.stopPropagation();
-        // CORRECCIÓN 1: Si es un bloque, insertar adentro al principio
         if (n && n.children !== null && n.children !== undefined) {
             ASTManager.addNode('empty', {}, n.id, 'START');
         } else {
@@ -845,8 +1208,6 @@ document.addEventListener('DOMContentLoaded', function() {
     },
 
     _html: (n) => {
-      // FIX #1, #2, #3, #5, #12: escape HTML aplicado a TODO valor que va a innerHTML
-      // FIX #5: null-guards para nodos con data corrupta (e.g. localStorage manipulado)
       if (!n || !n.data) return '<span style="color:red">// Nodo corrupto</span>';
       const esc = Utils.escapeHtml;
       const kw = t => `<span class="keyword">${esc(t)}</span>`;
@@ -977,16 +1338,15 @@ document.addEventListener('DOMContentLoaded', function() {
       FormManager.updateAllSelects();
     },
     closeAll: () => {
-        // FIX #28: limpiar formularios y estado interno al cerrar
         document.querySelectorAll('.floating-panel.active form').forEach(f => { try { f.reset(); } catch(e){} });
         document.querySelectorAll('.floating-panel').forEach(p => p.classList.remove('active'));
         FormManager.editNodeId = null;
+        FormManager.editFuncId = null;
         FormManager.showParts = [];
     },
     renderVarsList: () => {
       const c = document.getElementById('varsListContainer');
       if (!c) return;
-      // FIX #12: usar escape HTML y event listeners (no onclick inline) para nombres/IDs
       const vars = VariableRegistry.getAll();
       if (vars.length === 0) {
         c.innerHTML = '<div style="padding:10px;text-align:center;color:#ccc">Vacío</div>';
@@ -1073,11 +1433,11 @@ document.addEventListener('DOMContentLoaded', function() {
     insertAfterId: null,
     replaceNodeId: null,
     editNodeId: null,
+    editFuncId: null,
     activeNode: null,
     showParts: [],
 
     init: () => {
-      // Helper: obtener un campo de FormData de manera segura (nunca crashea en .trim())
       const getStr = (d, key) => {
         const v = d.get(key);
         return (typeof v === 'string') ? v.trim() : '';
@@ -1086,7 +1446,6 @@ document.addEventListener('DOMContentLoaded', function() {
       document.getElementById('btnManageVars').onclick = () => PanelManager.open('panelManageVars');
       document.getElementById('btnManageFuncs').onclick = () => PanelManager.open('panelManageFuncs');
 
-      // FIX #20: .trim() seguro
       document.getElementById('formAddVar').onsubmit = (e) => {
         e.preventDefault();
         const d = new FormData(e.target);
@@ -1104,31 +1463,23 @@ document.addEventListener('DOMContentLoaded', function() {
         if(!res.success) alert(res.error); else e.target.reset();
       };
 
-      const saveFunctionDef = (fName, argId, retId) => {
-          if (FormManager.editNodeId) {
-             ASTManager.updateNode(FormManager.editNodeId, { funcName: fName, argVarId: argId, returnVarId: retId });
-          } else {
-             ASTManager.addNode('function_def', { funcName: fName, argVarId: argId, returnVarId: retId }, FormManager.targetId, FormManager.insertAfterId, FormManager.replaceNodeId);
-          }
-      };
-
-      // FIX #7: validar que el nombre no exista o sea inválido ANTES de añadir el def al AST
       document.getElementById('formDefFunc').onsubmit = (e) => {
         e.preventDefault();
         const d = new FormData(e.target);
         const fName = getStr(d, 'funcName');
         if(!fName) { alert("Indica un nombre para la función"); return; }
-        if (!FormManager.editNodeId) {
+        const argId = d.get('argVarId') || null;
+        const retId = d.get('returnVarId') || null;
+
+        if (FormManager.editFuncId) {
+            const res = FunctionRegistry.update(FormManager.editFuncId, { name: fName, argVarId: argId, returnVarId: retId });
+            if (!res.success) { alert(res.error); return; }
+        } else {
             const res = FunctionRegistry.create(fName);
-            if (!res.success) {
-                // Si ya existe, OK seguir; si es inválida, abortar
-                if (res.error && !res.error.includes("Ya existe")) {
-                    alert(res.error);
-                    return;
-                }
-            }
+            if (!res.success) { alert(res.error); return; }
+            FunctionRegistry.update(res.id, { argVarId: argId, returnVarId: retId });
         }
-        saveFunctionDef(fName, d.get('argVarId') || null, d.get('returnVarId') || null);
+        FormManager.editFuncId = null;
         PanelManager.closeAll(); e.target.reset();
       };
 
@@ -1164,8 +1515,6 @@ document.addEventListener('DOMContentLoaded', function() {
           };
       };
 
-      // FIX #4: null-check de la variable destino en formAssign
-      // FIX #13, #14: parseo numérico seguro
       bind('formAssign', d => {
         const targetVar = VariableRegistry.get(d.get('targetVarId'));
         if (!targetVar) { alert("Selecciona una variable destino válida"); return; }
@@ -1197,7 +1546,6 @@ document.addEventListener('DOMContentLoaded', function() {
       bind('formIf', d => FormManager.addCond('if', d));
       bind('formWhile', d => FormManager.addCond('while', d));
 
-      // FIX #14, #15, #17: iterName validado, end como entero seguro
       bind('formFor', d => {
         const type = d.get('forType') || 'range';
         let iName = getStr(d, 'iterName') || 'i';
@@ -1224,7 +1572,6 @@ document.addEventListener('DOMContentLoaded', function() {
       if(typeof window.Validador !== 'undefined') window.Validador.init();
     },
 
-    // FIX #4, #13, #24: validar variable destino, parseo numérico seguro, mensaje claro si no hay variables
     addCond: (t, d) => {
       const l = d.get('leftVarId');
       const target = VariableRegistry.get(l);
@@ -1240,6 +1587,18 @@ document.addEventListener('DOMContentLoaded', function() {
       const data = {condition:{leftVarId:l, leftType:target.type, operator: d.get('operator') || '==', rightType:'literal', rightValue:rv}};
       if (FormManager.editNodeId) ASTManager.updateNode(FormManager.editNodeId, data);
       else ASTManager.addNode(t, data, FormManager.targetId, FormManager.insertAfterId, FormManager.replaceNodeId);
+    },
+
+    loadFunctionForEdit: (funcId) => {
+      const f = FunctionRegistry.get(funcId);
+      if (!f) return;
+      FormManager.editFuncId = funcId;
+      FormManager.editNodeId = null;
+      PanelManager.open('panelFormDefFunc');
+      const setVal = (sel, val) => { const el = document.querySelector(sel); if (el) el.value = val; };
+      setVal('#formDefFunc input[name="funcName"]', f.name);
+      setVal('#formDefFunc select[name="argVarId"]', f.argVarId || '');
+      setVal('#formDefFunc select[name="returnVarId"]', f.returnVarId || '');
     },
 
     loadNodeForEdit: (node) => {
@@ -1295,12 +1654,6 @@ document.addEventListener('DOMContentLoaded', function() {
               if (d.subType === 'range') setVal('#formFor input[name="endVal"]', d.end);
               else setVal('#formFor select[name="iterableVarId"]', d.iterableVarId);
               break;
-          case 'function_def':
-              PanelManager.open('panelFormDefFunc');
-              setVal('#formDefFunc input[name="funcName"]', d.funcName);
-              setVal('#formDefFunc select[name="argVarId"]', d.argVarId || '');
-              setVal('#formDefFunc select[name="returnVarId"]', d.returnVarId || '');
-              break;
           case 'function_call':
               PanelManager.open('panelFormCallFunc');
               const func = FunctionRegistry.getAll().find(f => f.name === d.funcName);
@@ -1315,21 +1668,50 @@ document.addEventListener('DOMContentLoaded', function() {
       }
     },
 
+    renderPreview: () => {
+      document.getElementById('msgBuilderPreview').innerHTML = FormManager.showParts.map(p =>
+        p.type==='text'
+          ? `<span class="msg-part msg-txt">${p.value}</span>`
+          : `<span class="msg-part msg-var">${VariableRegistry.get(p.varId)?.name}</span>`
+      ).join('') || '<span style="color:#ccc;font-size:12px">Vacío...</span>';
+    },
+
     updateAllSelects: () => {
-      const vars = VariableRegistry.getAll(); const funcs = FunctionRegistry.getAll();
+      const vars = VariableRegistry.getAll();
+      const funcs = FunctionRegistry.getAll();
+
       document.querySelectorAll('.var-select').forEach(s => {
-        const v = s.value; s.innerHTML = '<option value="">-- Opcional / Elegir --</option>';
-        vars.forEach(x => { const o=document.createElement('option'); o.value=x.id; o.text=`${x.name}`; s.appendChild(o); });
+        const v = s.value;
+        s.innerHTML = '<option value="">-- Opcional / Elegir --</option>';
+        vars.forEach(x => {
+            const o = document.createElement('option');
+            o.value = x.id;
+            o.text = `${x.name}`;
+            s.appendChild(o);
+        });
         if(s.hasAttribute('required')) s.querySelector('option[value=""]')?.remove();
         if(vars.find(x=>x.id===v)) s.value = v;
-        if(s.id === 'assignVarSelect' || s.id === 'builderVarSelect') { const msg = s.closest('.form-row').querySelector('.no-variables-msg'); if(msg) msg.style.display = vars.length ? 'none' : 'block'; }
+
+        if(s.id === 'assignVarSelect' || s.id === 'builderVarSelect') {
+          const msg = s.closest('.form-row').querySelector('.no-variables-msg');
+          if(msg) msg.style.display = vars.length ? 'none' : 'block';
+        }
       });
+
       document.querySelectorAll('.func-select').forEach(s => {
-          const v = s.value; s.innerHTML = '';
-          funcs.forEach(f => { const o = document.createElement('option'); o.value = f.id; o.text = f.name; s.appendChild(o); });
+          const v = s.value;
+          s.innerHTML = '';
+          funcs.forEach(f => {
+              const o = document.createElement('option');
+              o.value = f.id;
+              o.text = f.name;
+              s.appendChild(o);
+          });
           if(funcs.find(x=>x.id===v)) s.value = v;
-          const msg = s.closest('.form-row')?.querySelector('.no-functions-msg'); if(msg) msg.style.display = funcs.length ? 'none' : 'block';
+          const msg = s.closest('.form-row')?.querySelector('.no-functions-msg');
+          if(msg) msg.style.display = funcs.length ? 'none' : 'block';
       });
+
       if(typeof window.Validador !== 'undefined') {
           if(document.getElementById('panelFormAssign').classList.contains('active')) window.Validador.enforceTypes('assign');
           if(document.getElementById('panelFormIf').classList.contains('active')) window.Validador.enforceTypes('if');
@@ -1339,17 +1721,37 @@ document.addEventListener('DOMContentLoaded', function() {
 
     setupToggles: () => {
       document.querySelectorAll('input[type=radio]').forEach(r => r.addEventListener('change', () => {
-        if(r.name === 'valType') { document.getElementById('asnLitRow').style.display = r.value==='literal'?'block':'none'; document.getElementById('asnVarRow').style.display = r.value==='variable'?'block':'none'; }
+        if(r.name === 'valType') {
+          document.getElementById('asnLitRow').style.display = r.value==='literal'?'block':'none';
+          document.getElementById('asnVarRow').style.display = r.value==='variable'?'block':'none';
+        }
         if(r.name === 'compareType') {
-          const litInput = document.querySelector('#formIf input[name*="rightVal"], #formIf select[name*="rightVal"]'); const varSelectRow = document.getElementById('ifRightVarRow');
-          if (litInput && varSelectRow) { litInput.parentNode.style.display = r.value === 'value' ? 'block' : 'none'; varSelectRow.style.display = r.value === 'variable' ? 'block' : 'none'; }
+          const litInput = document.querySelector('#formIf input[name*="rightVal"], #formIf select[name*="rightVal"]');
+          const varSelectRow = document.getElementById('ifRightVarRow');
+          if (litInput && varSelectRow) {
+             litInput.parentNode.style.display = r.value === 'value' ? 'block' : 'none';
+             varSelectRow.style.display = r.value === 'variable' ? 'block' : 'none';
+          }
         }
         if(r.name === 'forType') {
-          const isRange = r.value === 'range'; document.getElementById('forRangeRow').style.display = isRange ? 'flex' : 'none'; document.getElementById('forIterRow').style.display = isRange ? 'none' : 'block';
+          const isRange = r.value === 'range';
+          document.getElementById('forRangeRow').style.display = isRange ? 'flex' : 'none';
+          document.getElementById('forIterRow').style.display = isRange ? 'none' : 'block';
           const iterInput = document.querySelector('input[name="iterName"]');
           if(iterInput) {
-            if (isRange) { iterInput.value = 'i'; iterInput.readOnly = true; iterInput.style.backgroundColor = '#f1f5f9'; iterInput.style.color = '#94a3b8'; }
-            else { iterInput.readOnly = false; iterInput.value = ''; iterInput.placeholder = 'Ej: item'; iterInput.style.backgroundColor = '#ffffff'; iterInput.style.color = 'var(--color-text-primary)'; FormManager.updateAllSelects(); }
+            if (isRange) {
+              iterInput.value = 'i';
+              iterInput.readOnly = true;
+              iterInput.style.backgroundColor = '#f1f5f9';
+              iterInput.style.color = '#94a3b8';
+            } else {
+              iterInput.readOnly = false;
+              iterInput.value = '';
+              iterInput.placeholder = 'Ej: item';
+              iterInput.style.backgroundColor = '#ffffff';
+              iterInput.style.color = 'var(--color-text-primary)';
+              FormManager.updateAllSelects();
+            }
           }
         }
       }));
@@ -1357,7 +1759,6 @@ document.addEventListener('DOMContentLoaded', function() {
   };
 
   /* 10. STORAGE MANAGER */
- /* 10. STORAGE MANAGER */
   const StorageManager = {
     KEY: 'cf_v04',
     BACKUP_KEY: 'cf_v04_backup',
@@ -1404,6 +1805,17 @@ document.addEventListener('DOMContentLoaded', function() {
       }
       return node;
     },
+    _sanitizeFunc: (entry) => {
+      if (!Array.isArray(entry) || entry.length !== 2) return null;
+      const f = entry[1];
+      if (!f || typeof f !== 'object' || typeof f.name !== 'string') return null;
+      if (f.argVarId === undefined) f.argVarId = null;
+      if (f.returnVarId === undefined) f.returnVarId = null;
+      if (!Array.isArray(f.children)) f.children = [];
+      f.children = f.children.filter(c => c && typeof c === 'object' && c.type);
+      f.children.forEach(c => StorageManager._sanitizeAST(c, false));
+      return entry;
+    },
     loadLocal: () => {
       let raw;
       try { raw = localStorage.getItem(StorageManager.KEY); } catch(e) { raw = null; }
@@ -1424,7 +1836,8 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
           ASTManager.root = (s && s.ast && Array.isArray(s.ast.children)) ? StorageManager._sanitizeAST(s.ast) : { id:'root', type:'program', children:[] };
           VariableRegistry._vars = (s && Array.isArray(s.vars)) ? new Map(s.vars.filter(e => Array.isArray(e) && e.length===2 && e[1] && e[1].name && e[1].type)) : new Map();
-          FunctionRegistry._funcs = (s && Array.isArray(s.funcs)) ? new Map(s.funcs.filter(e => Array.isArray(e) && e.length===2 && e[1] && e[1].name)) : new Map();
+          const sanitizedFuncs = s.funcs ? s.funcs.map(StorageManager._sanitizeFunc).filter(Boolean) : [];
+          FunctionRegistry._funcs = new Map(sanitizedFuncs);
         } catch(_) { ASTManager.reset(); return; }
         HistoryManager.saveState();
         EditorRenderer.render();
@@ -1435,7 +1848,8 @@ document.addEventListener('DOMContentLoaded', function() {
       try {
         ASTManager.root = StorageManager._sanitizeAST(s.ast);
         VariableRegistry._vars = new Map(s.vars);
-        FunctionRegistry._funcs = new Map(s.funcs);
+        const sanitizedFuncs = s.funcs.map(StorageManager._sanitizeFunc).filter(Boolean);
+        FunctionRegistry._funcs = new Map(sanitizedFuncs);
         HistoryManager.stack = [{ast: Utils.clone(ASTManager.root), vars: Utils.clone(s.vars), funcs: Utils.clone(s.funcs)}];
         HistoryManager.pointer = 0;
         EditorRenderer.render();
@@ -1455,7 +1869,8 @@ document.addEventListener('DOMContentLoaded', function() {
         if (StorageManager._validateSchema(s)) {
           ASTManager.root = StorageManager._sanitizeAST(s.ast);
           VariableRegistry._vars = new Map(s.vars);
-          FunctionRegistry._funcs = new Map(s.funcs);
+          const sanitizedFuncs = s.funcs.map(StorageManager._sanitizeFunc).filter(Boolean);
+          FunctionRegistry._funcs = new Map(sanitizedFuncs);
           EditorRenderer.render();
           PanelManager.renderVarsList();
           PanelManager.renderFuncsList();
@@ -1472,16 +1887,12 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('btnRedo').onclick = () => HistoryManager.redo();
   document.getElementById('btnClear').onclick = () => { if(confirm("¿Reiniciar?")) ASTManager.reset(); };
 
-  // ==========================================
-  // CONEXIÓN CON EL MÓDULO EXPORTADOR AST
-  // ==========================================
   document.getElementById('btnTranspile').onclick = () => { 
       const title = document.querySelector('#panelPythonCode .floating-panel-title');
       if (title) title.textContent = 'AST / Tokens (JSON)';
       
       const output = document.getElementById('pythonCodeOutput');
       
-      // Llamamos al archivo externo
       if (typeof window.ASTExporter !== 'undefined') {
           output.innerText = window.ASTExporter.generateJSON(); 
       } else {
@@ -1513,9 +1924,13 @@ document.addEventListener('DOMContentLoaded', function() {
       const actions = {
         'open-create-var': 'panelManageVars', 'open-function': 'panelManageFuncs', 'open-assign': 'panelFormAssign',
         'open-read': 'panelFormRead', 'open-show': 'panelFormShow', 'open-if': 'panelFormIf',
-        'open-while': 'panelFormWhile', 'open-for': 'panelFormFor', 'open-def-func': 'panelFormDefFunc', 'open-call-func': 'panelFormCallFunc'
+        'open-while': 'panelFormWhile', 'open-for': 'panelFormFor', 'open-call-func': 'panelFormCallFunc'
       };
-      if(actions[it.dataset.action]) PanelManager.open(actions[it.dataset.action]);
+      if(it.dataset.action === 'open-def-func') {
+        alert("Las funciones se gestionan desde el panel de Funciones. Su cuerpo aparece en la cabecera 'Funciones' arriba del editor, donde puedes añadir o quitar instrucciones dentro.");
+        PanelManager.open('panelManageFuncs');
+      }
+      else if(actions[it.dataset.action]) PanelManager.open(actions[it.dataset.action]);
       else if(it.dataset.action === 'open-loop') ASTManager.addNode('loop', {}, FormManager.targetId, FormManager.insertAfterId, FormManager.replaceNodeId);
       else if(it.dataset.action === 'open-break') ASTManager.addNode('break', {}, FormManager.targetId, FormManager.insertAfterId, FormManager.replaceNodeId);
     }
@@ -1547,6 +1962,8 @@ document.addEventListener('DOMContentLoaded', function() {
   window.EditorRenderer = EditorRenderer;
   window.HistoryManager = HistoryManager;
   window.SelectionManager = SelectionManager;
+  window.FormManager = FormManager;
+  window.PanelManager = PanelManager;
 
-  console.log("CodeFlow v05.0 Ready — AST conectado a Exportador Externo");
+  console.log("CodeFlow v05.1 Ready — Renderizado en Cabeceras y Purga Sólida Integrados");
 });

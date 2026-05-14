@@ -568,3 +568,106 @@ body.is-dragging * { cursor: grabbing !important; }
   .main-container { grid-template-columns: 1fr; }
   .panel-right { display: none; }
 }
+
+/* ====== CABECERAS PLEGABLES (Variables y Funciones auto-generadas) ====== */
+
+/* Cabecera principal (clickeable para plegar/desplegar) */
+.declaration-header {
+  background-color: rgba(99, 102, 241, 0.08);
+  border-left: 3px solid var(--color-accent-primary, #6366f1);
+  font-weight: 600;
+}
+
+.declaration-header:hover {
+  background-color: rgba(99, 102, 241, 0.14);
+}
+
+.declaration-header .line-content {
+  user-select: none;
+}
+
+/* Flecha ▼ / ▶ y contador (n) */
+.panel-toggle-arrow {
+  display: inline-block;
+  width: 14px;
+  color: var(--color-text-tertiary, #64748b);
+  font-size: 0.85em;
+  margin-right: 4px;
+}
+
+.panel-count {
+  color: var(--color-text-tertiary, #94a3b8);
+  font-size: 0.9em;
+  font-weight: normal;
+  margin-left: 6px;
+}
+
+/* Items individuales (variables o funciones dentro de su cabecera) */
+.declaration-item {
+  background-color: rgba(99, 102, 241, 0.02);
+  border-left: 3px solid rgba(99, 102, 241, 0.3);
+  cursor: default;
+}
+
+.declaration-item:hover {
+  background-color: rgba(99, 102, 241, 0.05);
+}
+
+/* Mensaje "Sin variables / Sin funciones" */
+.declaration-empty .line-content {
+  font-style: italic;
+}
+
+/* Separador entre funciones */
+.declaration-separator {
+  background-color: transparent;
+  border-left: 3px solid rgba(99, 102, 241, 0.3);
+  height: 8px;
+  min-height: 8px;
+  pointer-events: none;
+}
+
+.declaration-separator .line-number {
+  color: transparent;
+}
+
+.panel-separator-line {
+  display: inline-block;
+  width: 60%;
+  height: 1px;
+  background: linear-gradient(to right, rgba(99, 102, 241, 0.25), transparent);
+  margin-top: 4px;
+}
+
+/* Cursores y bloqueo de interacción en TODAS las líneas auto-generadas */
+.declaration-line .drag-handle,
+.declaration-line .line-del-btn,
+.declaration-line .down-btn,
+.declaration-line .edit-icon,
+.declaration-line .plus-icon {
+  cursor: default !important;
+}
+
+/* Nunca deben aceptar drop */
+.declaration-line.drop-target-inside {
+  outline: none !important;
+}
+
+/* Línea def de una función (dentro de la cabecera de Funciones) */
+.function-def-line {
+  background-color: rgba(99, 102, 241, 0.06);
+  border-left: 3px solid rgba(99, 102, 241, 0.5);
+}
+
+.function-def-line:hover {
+  background-color: rgba(99, 102, 241, 0.10);
+}
+
+/* El botón ✎ debe seguir clickeable en la línea def (a diferencia del × deshabilitado) */
+.function-def-line .edit-icon {
+  cursor: pointer !important;
+}
+
+.function-def-line .down-btn {
+  cursor: pointer !important;
+}
