@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CodeFlow - Editor Educativo</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  
+  <header class="main-header">
+    <div class="header-left">
+      <div class="logo">
+        <span class="logo-icon">CF</span>
+        <span class="logo-text">CodeFlow</span>
+      </div>
+      
+      <div class="global-tools">
+        <button class="btn-global" id="btnManageVars" title="Ver lista de variables">Variables</button>
+        <button class="btn-global" id="btnManageFuncs" title="Ver lista de funciones">Funciones</button>
+      </div>
+
+      <nav class="main-nav">
+        <button class="nav-item" id="btnMultiSelect" title="Activar/Desactivar selección múltiple">Selección múltiple</button>
+        <button class="nav-item" id="btnDeleteSelected" style="display:none; color: var(--color-accent-red); font-weight: bold;">Borrar Selección</button>
+        <a href="#" class="nav-item">Ejercicios</a>
+      </nav>
+    </div>
+    <div class="header-right">
+      <button class="btn-header btn-transpile" id="btnTranspile" onclick="ApiBridge.showPreviewModal()">Generar Python</button>
+      <button class="btn-header btn-save" id="btnExportJSON" onclick="ApiBridge.exportJSON('programa')">Exportar JSON</button>
+      <div class="user-avatar">US</div>
+    </div>
+  </header>
+
+  <main class="main-container">
+    <section class="panel panel-left">
+      <div class="panel-header">
+        <h2 class="panel-title">Pseudocódigo (Main)</h2>
+        <div class="header-tools" style="margin-left: 15px; display: flex; gap: 5px;">
+            <button class="btn-icon" id="btnUndo" title="Deshacer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"></path><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path></svg></button>
+            <button class="btn-icon" id="btnRedo" title="Rehacer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"></path><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"></path></svg></button>
+        </div>
+        <div class="panel-actions">
+          <button class="btn-clear" id="btnClear" title="Reiniciar Proyecto"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button>
+        </div>
+      </div>
+      <div class="panel-content">
+        <div class="code-lines" id="codeLines"></div>
+      </div>
+    </section>
+
+    <section class="panel panel-right">
+      <div class="panel-header">
+        <h2 class="panel-title">Diagrama de Flujo</h2>
+      </div>
+      <div class="panel-content" style="display:flex; flex-direction:column; align-items:center; justify-content:center;">
+        <div style="text-align:center; color: var(--color-text-tertiary);">
+          <div style="font-size: 40px; opacity:0.3; margin-bottom: 15px;">❖</div>
+          <p style="font-size: 0.9rem; font-weight: 500;">Visualización en Tiempo Real</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="quickContextMenu" class="context-menu-popup">
+    <div class="context-menu-header" id="dragMenuHandle"><span>Instrucciones</span><span style="opacity: 0.5; font-size: 10px;">::</span></div>
+    
+    <div class="menu-category-label">Variables</div>
+    <div class="context-menu-item" data-action="open-create-var"><span class="item-icon icon-var"></span><span>Gestionar Variables...</span></div>
+    <div class="context-menu-item" data-action="open-assign"><span class="item-icon icon-var"></span><span>Asignar valor</span></div>
+    
+    <div class="menu-category-label">Funciones</div>
+    <div class="context-menu-item" data-action="open-def-func"><span class="item-icon icon-func"></span><span>Definir Función (def)</span></div>
+    <div class="context-menu-item" data-action="open-call-func"><span class="item-icon icon-func"></span><span>Llamar Función</span></div>
+
+    <div class="menu-category-label">Entrada / Salida</div>
+    <div class="context-menu-item" data-action="open-read"><span class="item-icon icon-io"></span><span>Leer (Read)</span></div>
+    <div class="context-menu-item" data-action="open-show"><span class="item-icon icon-io"></span><span>Mostrar (Print)</span></div>
+    
+    <div class="menu-category-label">Control</div>
+    <div class="context-menu-item" data-action="open-if"><span class="item-icon icon-flow"></span><span>Si (Condicional)</span></div>
+    <div class="context-menu-item" data-action="open-while"><span class="item-icon icon-flow"></span><span>Mientras (While)</span></div>
+    <div class="context-menu-item" data-action="open-for"><span class="item-icon icon-flow"></span><span>Para (For)</span></div>
+    <div class="context-menu-item" data-action="open-loop"><span class="item-icon icon-flow"></span><span>Loop (Infinito)</span></div>
+    <div class="context-menu-item" data-action="open-break" style="display:none;"><span class="item-icon icon-break"></span><span>Romper (break)</span></div>
+  </div>
+
+  <div id="editContextMenu" class="context-menu-popup">
+    <div class="context-menu-header"><span>Opciones de Línea</span></div>
+    <div class="context-menu-item" data-action="edit-node">
+        <span class="item-icon" style="background:#f59e0b;"></span><span>✎ Editar Instrucción</span>
+    </div>
+    <div class="context-menu-item" data-action="replace-node">
+        <span class="item-icon" style="background:#3b82f6;"></span><span>⎘ Reemplazar por otra nueva</span>
+    </div>
+  </div>
+
+  <div class="floating-panel" id="panelManageVars">
+    <div class="floating-panel-header"><h3 class="floating-panel-title">Lista de Variables</h3><button class="floating-panel-close">×</button></div>
+    <div class="floating-panel-body">
+      <div id="varsListContainer" class="list-container"></div>
+      <form id="formAddVar" class="inline-form" style="margin-top:10px; padding-top:10px; border-top:1px solid #eee;">
+        <input type="text" name="varName" placeholder="Nombre..." required class="form-input-sm" style="flex:2;">
+        <select name="varType" class="form-select-sm" style="flex:1;">
+          <option value="number">Num</option>
+          <option value="string">Txt</option>
+          <option value="boolean">Bool</option>
+          <option value="list">Lista</option>
+        </select>
+        <button type="submit" class="btn-action-sm" title="Agregar">+</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="floating-panel" id="panelManageFuncs">
+    <div class="floating-panel-header"><h3 class="floating-panel-title">Lista de Funciones</h3><button class="floating-panel-close">×</button></div>
+    <div class="floating-panel-body">
+      <div id="funcsListContainer" class="list-container"></div>
+      <form id="formAddFunc" class="inline-form" style="margin-top:10px; padding-top:10px; border-top:1px solid #eee;">
+        <input type="text" name="funcName" placeholder="Nombre..." required class="form-input-sm" style="flex:1;">
+        <button type="submit" class="btn-action-sm" title="Crear">Crear</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="floating-panel floating-panel-form" id="panelFormDefFunc">
+    <div class="floating-panel-header"><h3 class="floating-panel-title">Definir Función (def)</h3><button class="floating-panel-close">×</button></div>
+    <div class="floating-panel-body">
+      <form id="formDefFunc">
+        <div class="form-row">
+          <label class="form-label">Nombre de la Función</label>
+          <input type="text" name="funcName" class="form-input" required placeholder="Ej: calcular_total">
+        </div>
+        <div class="form-row">
+          <label class="form-label">Argumento (Opcional)</label>
+          <select name="argVarId" class="form-select var-select">
+            <option value="">-- Sin argumento --</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label class="form-label">Retorno (Opcional)</label>
+          <select name="returnVarId" class="form-select var-select">
+            <option value="">-- Sin retorno --</option>
+          </select>
+        </div>
+        <button type="submit" class="btn-confirm full-width">Guardar Función</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="floating-panel floating-panel-form" id="panelFormCallFunc">
+    <div class="floating-panel-header"><h3 class="floating-panel-title">Llamar Función</h3><button class="floating-panel-close">×</button></div>
+    <div class="floating-panel-body">
+      <form id="formCallFunc">
+        <div class="form-row">
+          <label class="form-label">Función a ejecutar</label>
+          <select name="funcId" class="form-select func-select" required></select>
+          <div class="no-functions-msg" style="display:none; color:orange; font-size:11px; margin-top:4px;">No hay funciones creadas</div>
+        </div>
+        <div class="form-row">
+          <label class="form-label">Pasar Argumento (Opcional)</label>
+          <select name="argVarId" class="form-select var-select">
+            <option value="">-- Ninguno --</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label class="form-label">Guardar retorno en (Opcional)</label>
+          <select name="targetVarId" class="form-select var-select">
+            <option value="">-- No guardar --</option>
+          </select>
+        </div>
+        <button type="submit" class="btn-confirm full-width">Guardar Llamada</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="floating-panel floating-panel-form" id="panelFormShow">
+    <div class="floating-panel-header"><h3 class="floating-panel-title">Construir Print</h3><button class="floating-panel-close">×</button></div>
+    <div class="floating-panel-body">
+      <div class="message-preview" id="msgBuilderPreview"><span style="color:#ccc; font-style:italic; font-size:12px;">Vacío...</span></div>
+      <div class="builder-tools" style="display:flex; justify-content:flex-end; gap:5px; margin-bottom:15px;">
+        <button type="button" id="btnResetMsg" class="btn-tool">Limpiar</button>
+        <button type="button" id="btnUndoPart" class="btn-tool">↩</button>
+      </div>
+      <div class="form-row">
+        <label class="form-label">Añadir Texto</label>
+        <div class="flex-row"><input type="text" id="builderTextInput" class="form-input" placeholder="Ej: Resultado: "><button type="button" id="btnAddText" class="btn-action">Añadir</button></div>
+      </div>
+      <div class="form-row">
+        <label class="form-label">Añadir Variable</label>
+        <div class="flex-row"><select id="builderVarSelect" class="form-select var-select"></select><button type="button" id="btnAddVar" class="btn-action">Añadir</button></div>
+        <div class="no-variables-msg" id="showNoVars" style="display:none; margin-top:5px; font-size:11px; color:orange;">Crea variables primero</div>
+      </div>
+      <button type="button" id="btnSaveShow" class="btn-confirm full-width">Guardar Print</button>
+    </div>
+  </div>
+
+  <div class="floating-panel floating-panel-form" id="panelFormAssign">
+    <div class="floating-panel-header"><h3 class="floating-panel-title">Control Variable</h3><button class="floating-panel-close">×</button></div>
+    <div class="floating-panel-body">
+      <form id="formAssign">
+        <div class="form-row flex-row">
+          <div style="flex:2">
+            <label class="form-label">Destino</label>
+            <select name="targetVarId" class="form-select var-select" id="assignVarSelect" required></select>
+          </div>
+          <div style="flex:1">
+            <label class="form-label">Op</label>
+            <select name="operator" class="form-select">
+              <option value="=">=</option>
+              <option value="+=">+</option>
+              <option value="-=">-</option>
+              <option value="*=">*</option>
+              <option value="/=">/</option>
+              <option value="%=">%</option>
+            </select>
+          </div>
+        </div>
+        <div class="no-variables-msg" style="display:none;">No hay variables disponibles.</div>
+        
+        <div class="show-type-selector" style="margin-bottom:10px;">
+           <label class="show-type-option"><input type="radio" name="valType" value="literal" checked> Constante</label>
+           <label class="show-type-option"><input type="radio" name="valType" value="variable"> Var</label>
+        </div>
+        <div id="asnLitRow" class="form-row"><input type="text" name="literalVal" class="form-input" placeholder="Valor..."></div>
+        <div id="asnVarRow" class="form-row" style="display:none"><select name="sourceVarId" class="form-select var-select"></select></div>
+        <button type="submit" class="btn-confirm full-width">Guardar</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="floating-panel floating-panel-form" id="panelFormRead">
+    <div class="floating-panel-header"><h3 class="floating-panel-title">Read (Input)</h3><button class="floating-panel-close">×</button></div>
+    <div class="floating-panel-body">
+      <form id="formRead">
+        <div class="form-row"><label class="form-label">Guardar en:</label><select name="targetVarId" class="form-select var-select" required></select></div>
+        <button type="submit" class="btn-confirm full-width">Guardar Read</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="floating-panel floating-panel-form" id="panelFormIf">
+    <div class="floating-panel-header"><h3 class="floating-panel-title">Condición</h3><button class="floating-panel-close">×</button></div>
+    <div class="floating-panel-body">
+      <form id="formIf">
+        <div class="form-condition-row">
+          <div style="flex:2"><select name="leftVarId" class="form-select var-select" required></select></div>
+          <div style="flex:1"><select name="operator" class="form-select form-select-sm"><option value="==">==</option><option value="!=">!=</option><option value="<">&lt;</option><option value=">">&gt;</option><option value="<=">&le;</option><option value=">=">&ge;</option></select></div>
+          <div style="flex:2"><input type="text" name="rightVal" class="form-input" placeholder="Const"></div>
+        </div>
+        <div class="compare-type-selector">
+          <label class="compare-type-option"><input type="radio" name="compareType" value="value" checked> Constante</label>
+          <label class="compare-type-option"><input type="radio" name="compareType" value="variable"> Var</label>
+        </div>
+        <div class="form-row" id="ifRightVarRow" style="display:none;"><select name="rightVarId" class="form-select var-select"></select></div>
+        <button type="submit" class="btn-confirm full-width">Guardar Condición</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="floating-panel floating-panel-form" id="panelFormWhile">
+    <div class="floating-panel-header"><h3 class="floating-panel-title">Mientras (While)</h3><button class="floating-panel-close">×</button></div>
+    <div class="floating-panel-body">
+      <form id="formWhile">
+        <div class="form-condition-row">
+          <select name="leftVarId" class="form-select var-select" required></select>
+          <select name="operator" class="form-select form-select-sm"><option value="<">&lt;</option><option value=">">&gt;</option><option value="!=">!=</option></select>
+          <input type="text" name="rightVal" class="form-input" placeholder="Const/Var">
+        </div>
+        <button type="submit" class="btn-confirm full-width">Guardar Bucle</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="floating-panel floating-panel-form" id="panelFormFor">
+    <div class="floating-panel-header"><h3 class="floating-panel-title">Bucle Para</h3><button class="floating-panel-close">×</button></div>
+    <div class="floating-panel-body">
+      <form id="formFor">
+        <div class="show-type-selector" style="margin-bottom:12px;">
+           <label class="show-type-option"><input type="radio" name="forType" value="range" checked> Rango</label>
+           <label class="show-type-option"><input type="radio" name="forType" value="iterable"> Variable (Array/String)</label>
+        </div>
+        <div class="form-row">
+          <label class="form-label">Variable Iteradora</label>
+          <input type="text" name="iterName" value="i" class="form-input" placeholder="Ej: i, item">
+        </div>
+        <div id="forRangeRow" class="flex-row gap-2">
+          <div class="form-row" style="flex:1"><label class="form-label">Fin de Rango (Const)</label><input type="number" name="endVal" value="10" class="form-input"></div>
+        </div>
+        <div id="forIterRow" class="form-row" style="display:none;">
+          <label class="form-label">Colección a Recorrer</label>
+          <select name="iterableVarId" class="form-select var-select"></select>
+          <div class="no-variables-msg" style="display:none; color:orange; font-size:11px;">No hay variables creadas</div>
+        </div>
+        <button type="submit" class="btn-confirm full-width">Guardar For</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="floating-panel floating-panel-code" id="panelPythonCode">
+    <div class="floating-panel-header"><h3 class="floating-panel-title">Python Generado</h3><button class="floating-panel-close">×</button></div>
+    <div class="floating-panel-body">
+      <pre class="code-output" id="pythonCodeOutput"></pre>
+      <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+        <button class="btn-copy" id="btnCopyPython">Copiar al portapapeles</button>
+        <button class="btn-copy" style="background:var(--color-accent,#3b82f6); color:#fff;" onclick="ApiBridge.exportPython('programa')">⬇ Descargar .py</button>
+        <button class="btn-copy" style="background:#6b7280; color:#fff;" onclick="ApiBridge.exportJSON('programa')">⬇ Descargar JSON</button>
+      </div>
+    </div>
+    <div class="floating-panel-resize"></div>
+  </div>
+
+  <script src="Validador.js"></script>
+  <script src="ExportadorAST.js"></script>
+  <script src="app.js"></script>
+  <script src="api-bridge.js"></script>
+</body>
+</html>

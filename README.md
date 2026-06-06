@@ -1,183 +1,163 @@
-# Proyecto-mama-Ofe
-Repositorio oficial para la creación el desarrollo del programa capaz de transpilar pseudocodigo a python/otros lenguajes
+# CodeFlow — Backend
 
-# 🧠 CodeFlow — Editor Educativo de Pseudocódigo
-
-CodeFlow es un **editor visual educativo** diseñado para enseñar lógica de programación de forma **segura, guiada y estructurada**, evitando errores comunes del principiante mediante un sistema basado en **AST (Árbol de Sintaxis Abstracta)** y generación de representaciones intermedias (Tokens).
-
-El usuario **no escribe código libremente**: construye programas mediante **bloques lógicos validados semánticamente**, lo que garantiza coherencia, tipado correcto y una experiencia pedagógica sólida.
+Servidor Express que recibe el AST generado por el frontend de CodeFlow,
+lo guarda como JSON y lo transpila a código Python.
 
 ---
 
-## 🎯 Objetivo del Proyecto
+## Estructura del proyecto
 
-- Enseñar **pensamiento algorítmico**, no sintaxis
-- Reducir errores por diseño (UX segura - Poka-yoke)
-- Representar programas como un **modelo lógico real**
-- Permitir múltiples vistas del mismo programa:
-  - Pseudocódigo
-  - Diagrama de flujo (futuro)
-  - Código Python (futuro)
-
----
-
-## ⚙️ Funcionalidades Principales (Actualizadas)
-
-### 🧩 Editor de Pseudocódigo
-- ✅ Inserción de instrucciones mediante botón `+` (Inserción exacta en cualquier línea)
-- ✅ Inserción de líneas vacías explícitas mediante botón `↓`
-- ✅ Edición en vivo de instrucciones mediante botón `✎`
-- ✅ Menús contextuales por categoría
-- ✅ Indentación automática y bloques estructurados (`Si`, `Mientras`, `Para`, `Función`)
-- ✅ Selección múltiple, atajos de teclado (`Ctrl+D`, `Ctrl+Z`) y Drag & Drop
-- ✅ Eliminación segura de nodos (con protección de llaves huérfanas)
-
-### 📦 Gestión de Variables
-- ✅ Declaración explícita desde panel global
-- ✅ Tipos estrictos (`number`, `string`, `boolean`, `list`)
-- ✅ Inicialización automática segura
-- ✅ Uso exclusivo mediante selección en formularios (no texto libre)
-- ✅ Registro centralizado de variables con *purga referencial automática* (si borras una variable, se limpia del código)
-
-### 🧠 Funciones
-- ✅ Definición de funciones (`def`) con parámetros opcionales y retorno
-- ✅ Llamadas a funciones con argumentos
-- ✅ Separación visual entre definición y uso
-- ✅ Registro central de funciones
-
-### 🔀 Control de Flujo
-- ✅ Condicionales (`Si`)
-- ✅ Bucles (`Mientras`)
-- ✅ Bucles `Para`:
-  - ✅ Por rango numérico
-  - ✅ Iterativos (sobre variables tipo Array/String)
-- ✅ Protección estructural (no se puede sacar un `break` fuera de un bucle)
-
-### ⌨️ Entrada / Salida
-- ✅ `Leer` (input)
-- ✅ `Mostrar` (Print dinámico combinando múltiples textos y variables)
-
-### 🔄 Generador AST (Preparación para Transpilación)
-- ✅ Conversión del AST a JSON estructurado (Tokens)
-- 🟡 Transpilación final a Python (Pausada temporalmente para Fase 4)
-
-### 🧱 Arquitectura Interna
-- ✅ AST como única fuente de verdad
-- ✅ UI como proyección reactiva del modelo
-- ✅ Separación estricta de módulos:
-  - `app.js`: Cerebro y renderizado (Modelo/Vista)
-  - `Validador.js`: Prevención de errores lógicos
-  - `ExportadorAST.js`: Exportación a JSON limpio
+```
+codeflow-backend/
+├── server.js          ← Servidor Express (puntos de entrada REST)
+├── transpiler.js      ← Motor de transpilación AST → Python
+├── package.json
+├── README.md
+└── frontend/
+    └── api-bridge.js  ← Módulo JS que añades a tu frontend existente
+```
 
 ---
 
-## 🗺️ Fases del Desarrollo del Proyecto
+## Instalación y arranque
 
-### 🟢 FASE 0 — Definición del Lenguaje
-**Estado:** ✅ Completada  
-- Palabras clave
-- Tipos de datos expansivos (`Num`, `Txt`, `Bool`, `List`)
-- Reglas del pseudocódigo y semántica básica
+```bash
+cd codeflow-backend
+npm install
+npm start            # → http://localhost:3000
+```
 
----
-
-### 🟢 FASE 1 — Modelo Lógico (AST)
-**Estado:** ✅ Completada  
-- AST jerárquico (`root`, `children`, `parentId`)
-- Nodos tipados y reemplazo de nodos (`replaceNodeId`)
-- Relación padre–hijo (protección contra referencias circulares)
-- Inserción y borrado controlado
+Para desarrollo con recarga automática:
+```bash
+npm install -D nodemon
+npm run dev
+```
 
 ---
 
-### 🟢 FASE 2 — Editor Visual Seguro
-**Estado:** ✅ Completada  
-- Botones de control por línea (`+`, `↓`, `✎`, `×`)
-- Menús contextuales y formularios guiados dinámicos
-- UX orientada a evitar errores
-- `Undo`/`Redo` implementado y funcional
-- Arrastrar y soltar seguro (evitando romper jerarquías)
+## Integración con tu frontend
+
+### 1. Copia `frontend/api-bridge.js` a tu carpeta del frontend.
+
+### 2. Añade la etiqueta `<script>` en `index.html` **después** de `app.js`:
+
+```html
+<!-- tus scripts existentes -->
+<script src="Validador.js"></script>
+<script src="ExportadorAST.js"></script>
+<script src="app.js"></script>
+
+<!-- nuevo módulo de conexión con el backend -->
+<script src="api-bridge.js"></script>
+```
+
+### 3. Añade botones en tu UI (donde quieras):
+
+```html
+<!-- Exportar AST como JSON -->
+<button onclick="ApiBridge.exportJSON('mi_programa')">
+  ⬇ Exportar JSON
+</button>
+
+<!-- Exportar código Python -->
+<button onclick="ApiBridge.exportPython('mi_programa')">
+  🐍 Exportar Python
+</button>
+
+<!-- Ver previsualización en modal -->
+<button onclick="ApiBridge.showPreviewModal()">
+  👁 Previsualizar Python
+</button>
+```
 
 ---
 
-### 🟢 FASE 3 — Gestión Global de Variables y Funciones
-**Estado:** ✅ Completada  
-- Paneles dedicados flotantes y arrastrables
-- Sincronización total UI ↔ AST
-- Purga inteligente: al eliminar variables/funciones globales, el AST limpia el código huérfano
+## Endpoints REST
+
+| Método | Ruta | Body | Respuesta |
+|--------|------|------|-----------|
+| `POST` | `/api/export/json` | `{ ast, filename? }` | Descarga `.json` |
+| `POST` | `/api/export/python` | `{ ast, variables?, filename? }` | Descarga `.py` |
+| `POST` | `/api/preview/python` | `{ ast, variables? }` | `{ code: "..." }` |
+| `GET`  | `/api/health` | — | `{ status: "ok" }` |
+
+### Ejemplo de body
+
+```json
+{
+  "filename": "mi_programa",
+  "variables": [
+    { "id": "v1", "name": "contador", "type": "number",  "initialValue": 0 },
+    { "id": "v2", "name": "nombre",   "type": "string",  "initialValue": "" },
+    { "id": "v3", "name": "activo",   "type": "boolean", "initialValue": false },
+    { "id": "v4", "name": "items",    "type": "list",    "initialValue": null }
+  ],
+  "ast": [
+    {
+      "id": "n1",
+      "type": "ASSIGN",
+      "data": { "varId": "v1", "operator": "=", "literalValNum": 10 }
+    },
+    {
+      "id": "n2",
+      "type": "WHILE",
+      "data": { "leftVarId": "v1", "operator": ">", "literalValNum": 0 },
+      "children": [
+        { "id": "n3", "type": "PRINT",  "data": { "varId": "v1" } },
+        { "id": "n4", "type": "ASSIGN", "data": { "varId": "v1", "operator": "-=", "literalValNum": 1 } }
+      ]
+    }
+  ]
+}
+```
+
+### Salida Python generada
+
+```python
+# Generated by CodeFlow  —  2024-01-15 10:30:00
+# -----------------------------------------------
+
+contador = 0
+nombre = ""
+activo = False
+items = []
+
+contador = 10
+while contador > 0:
+    print(contador)
+    contador -= 1
+```
 
 ---
 
-### ⚪ FASE 4 — Transpilación Multilenguaje
-**Estado:** ⚪ Pausada estratégicamente  
-- Exportador AST (JSON) implementado para leer tokens
-*Pendientes:* Crear `Transpilador.js` para leer el JSON y escupir sintaxis Python.
+## Nodos AST soportados
+
+| Tipo de nodo | Descripción |
+|---|---|
+| `ASSIGN` | Asignación con operadores `= += -= *= /= %=` |
+| `PRINT` | Imprime variable o literal |
+| `INPUT` | Lee input del usuario (con cast de tipo) |
+| `IF` | Condicional con rama `else` opcional |
+| `WHILE` | Bucle con condición |
+| `FOR` | Iteración sobre lista |
+| `FOR_RANGE` | Iteración `range(start, end, step)` |
+| `DEF` / `FUNCTION` | Definición de función |
+| `CALL` / `FUNC_CALL` | Llamada a función |
+| `RETURN` | Retorno de valor |
+| `LIST_APPEND` | `lista.append(item)` |
+| `LIST_REMOVE` | `lista.remove(item)` |
+| `LIST_ACCESS` | `var = lista[i]` |
+| `BREAK` | `break` |
+| `CONTINUE` | `continue` |
+| `COMMENT` | Comentario `#` |
+
+Cualquier nodo desconocido se emite como comentario `# [NODO NO SOPORTADO: ...]`
+para no romper la transpilación.
 
 ---
 
-### ⚪ FASE 5 — Diagrama de Flujo Sincronizado
-**Estado:** ⚪ No iniciada  
-- Vista gráfica del AST (Canvas / SVG / Mermaid.js)
-- Sincronización en tiempo real con el código
+## Variables de entorno
 
----
-
-### 🟢 FASE 6 — Validación Semántica Avanzada (Adelantada)
-**Estado:** ✅ Completada  
-- Extracción a módulo `Validador.js` (Poka-yoke)
-- Tipos incompatibles bloqueados (Ej: Solo mostrar variables del mismo tipo al asignar)
-- Cambio dinámico de inputs (Listas bloqueadas para literales, booleanos usan select, números solo teclado numérico)
-- Prevención total de inyecciones de código HTML malicioso (Seguridad Anti-XSS)
-
----
-
-### 🟢 FASE 7 — Persistencia y Versionado (Adelantada)
-**Estado:** ✅ Completada  
-- Guardado local automático (`StorageManager`)
-- Carga de AST con validación de esquemas (protección contra JSON corruptos)
-- Sistema de Backups silentes en caso de falla
-- Sincronización automática entre pestañas
-
----
-
-### 🟡 FASE 8 — UX Final y Pulido (Adelantada)
-**Estado:** 🟡 En desarrollo activo ← **ESTADO ACTUAL**
-- Selección Múltiple con `Ctrl` implementada
-- Atajos de teclado para deshacer (`Ctrl+Z`) y duplicar (`Ctrl+D`)
-- Microinteracciones de selección y arrastre
-*Pendientes:* Tooltips educativos finales
-
----
-
-### ⚪ FASE 9 — Release Oficial (v1.0)
-**Estado:** ⚪ Pendiente  
-Requisitos:
-- Motor gráfico de diagrama de flujo
-- Transpilación a Python habilitada
-- Modo ejercicios guiados habilitado
-- Sin bugs críticos
-
----
-
-## 🧠 Filosofía del Proyecto
-
-> **El usuario aprende lógica, no pelea con la sintaxis.** > **El sistema previene errores en lugar de corregirlos después.**
-
-CodeFlow prioriza **claridad, seguridad y coherencia**, incluso por encima de la flexibilidad total.
-
----
-
-## 📌 Estado Actual del Proyecto
-
-🟡 **FASES 4 y 5 — Preparación para Transpilación y Diagrama de Flujo** Los cimientos lógicos (AST, Semántica, UI y Persistencia) están completados y blindados. El sistema ahora genera un árbol de tokens perfecto, listo para que se inicie el desarrollo del renderizador visual (Diagrama) o el traductor de texto (Transpilador).
-
----
-
-## 🚀 Visión a Futuro
-
-- Múltiples lenguajes de salida
-- Diagrama de flujo interactivo
-- Modo ejercicios guiados
-- Uso educativo real en aula
-
-Organizadora del proyecto: Ofelia Gutierrez Giraldi
+| Variable | Por defecto | Descripción |
+|---|---|---|
+| `PORT` | `3000` | Puerto del servidor |
