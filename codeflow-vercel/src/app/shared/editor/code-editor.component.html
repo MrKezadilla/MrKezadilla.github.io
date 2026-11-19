@@ -1,0 +1,108 @@
+<div class="cf-editor">
+  <div class="cf-editor-bar">
+    <div>
+      <span class="cf-eyebrow">Editor</span>
+      <h2 class="cf-editor-title">Programa principal</h2>
+    </div>
+    <p class="cf-editor-tip">
+      <span>Doble clic para editar</span>
+      <span>Arrastra <strong>⠿</strong> para mover</span>
+      <span><kbd>Ctrl</kbd> + <kbd>Z</kbd> deshacer</span>
+    </p>
+  </div>
+
+  <div class="cf-lines">
+    @for (line of lines(); track line.key) {
+      @if (line.kind === 'section') {
+        <div class="cf-section">
+          <span>{{ line.label }}</span>
+          <span class="cf-section-line"></span>
+        </div>
+      } @else if (line.kind === 'root-empty') {
+        <div
+          class="cf-root-empty"
+          role="button"
+          tabindex="0"
+          aria-label="Agregar instrucción"
+          (click)="openAddMenu($event, line, true)"
+          (keydown.enter)="openAddMenuFromKeyboard($event, line)"
+          (keydown.space)="openAddMenuFromKeyboard($event, line)"
+        >
+          <div class="cf-root-icon">+</div>
+          <h3>{{ line.label }}</h3>
+          <p>{{ line.emptyText }}</p>
+          <span class="cf-root-button">Agregar instrucción</span>
+        </div>
+      } @else if (line.kind === 'function-end') {
+        <div class="cf-function-end" [style.marginLeft.px]="line.depth * 22 + 36"></div>
+      } @else if (line.kind === 'end') {
+        <div class="cf-close-line" [style.marginLeft.px]="line.depth * 22 + 36"></div>
+      } @else {
+        <div
+          class="cf-line"
+          [attr.data-editor-node]="line.nodeId"
+          [class.cf-line-container]="line.container"
+          [class.cf-line-empty]="line.empty"
+          [class.cf-selected]="isSelected(line)"
+          [class.cf-hl-active]="isActive(line)"
+          [class.cf-hl-hover]="isHovered(line)"
+          [class.cf-drop-before]="isDrop(line, 'before')"
+          [class.cf-drop-after]="isDrop(line, 'after')"
+          [class.cf-drop-inside]="isDrop(line, 'inside')"
+          (mouseenter)="onRowEnter(line)"
+          (mouseleave)="onRowLeave(line)"
+          (click)="onRowClick($event, line)"
+          (dragover)="dragOver($event, line)"
+          (dragleave)="dragLeave($event, line)"
+          (drop)="drop($event, line)">
+
+          <span class="cf-gutter">{{ line.lineNo }}</span>
+
+          <div class="cf-content" [style.marginLeft.px]="line.depth * 22">
+            <span class="cf-branch" [class.cf-branch-visible]="line.depth > 0">└</span>
+
+            <div class="cf-row" (dblclick)="onRowDoubleClick($event, line)">
+              @if (line.empty) {
+                <button type="button" class="cf-add-empty" (click)="openAddMenu($event, line, true)">
+                  <span>{{ line.emptyText }}</span>
+                  <span class="cf-add-plus">+</span>
+                </button>
+              } @else {
+                <span class="cf-dot" [ngClass]="'tone-' + line.tone"></span>
+                <code class="cf-code" [ngClass]="'tone-' + line.tone">{{ line.label }}</code>
+                @if (line.badge) {
+                  <span class="cf-badge" [class.cf-badge-else]="line.kind === 'else'">{{ line.badge }}</span>
+                }
+              }
+
+              @if (!line.empty) {
+                <div class="cf-actions">
+                  @if (line.canAdd) {
+                    <button type="button" class="cf-action" title="Agregar instrucción" (click)="openPlus($event, line)">+</button>
+                  }
+                  @if (line.canEdit) {
+                    <button type="button" class="cf-action" title="Editar" (click)="editLine($event, line)">✎</button>
+                    <button type="button" class="cf-action" title="Reemplazar por otra instrucción" (click)="openReplaceMenu($event, line)">⇄</button>
+                  }
+                  @if (line.canDelete) {
+                    <button type="button" class="cf-action cf-action-danger" title="Eliminar" (click)="removeLine($event, line)">×</button>
+                  }
+                  @if (line.canDrag) {
+                    <button
+                      type="button"
+                      class="cf-action cf-drag"
+                      title="Arrastrar para mover"
+                      draggable="true"
+                      (dragstart)="dragStart($event, line)"
+                      (dragend)="dragEnd()">⠿</button>
+                  }
+                </div>
+              }
+            </div>
+          </div>
+        </div>
+      }
+    }
+  </div>
+</div>
+
